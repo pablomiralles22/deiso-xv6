@@ -6,6 +6,7 @@
 #include "memlayout.h"
 #include "spinlock.h"
 #include "proc.h"
+#include "pstat.h"
 
 uint64
 sys_exit(void)
@@ -95,3 +96,17 @@ sys_uptime(void)
   release(&tickslock);
   return xticks;
 }
+
+uint64
+sys_getpinfo(void)
+{
+  uint64 addr;
+  struct proc *pr = myproc();
+
+  if(argaddr(0, &addr) < 0)
+    return -1;
+  if(copyout(pr->pagetable, addr, (char *) &pstat, sizeof(pstat)) < 0)
+    return -1;
+  return 0;
+}
+
