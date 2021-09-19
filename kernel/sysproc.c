@@ -102,7 +102,7 @@ sys_settickets(void)
 {
   int n;
 
-  if(argint(0, &n) < 1)
+  if(argint(0, &n) < MINTICKETS)
     return -1;
   myproc()->tickets = n;
   return 0;
