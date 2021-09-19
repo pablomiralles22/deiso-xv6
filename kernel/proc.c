@@ -119,7 +119,6 @@ allocproc(void)
 found:
   p->pid = allocpid();
   p->state = USED;
-  p->tickets = 1;
 
   // Allocate a trapframe page.
   if((p->trapframe = (struct trapframe *)kalloc()) == 0){

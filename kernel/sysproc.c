@@ -95,15 +95,3 @@ sys_uptime(void)
   release(&tickslock);
   return xticks;
 }
-
-// stablish the number of tickets of the caller process 
-uint64
-sys_settickets(void)
-{
-  int n;
-
-  if(argint(0, &n) < 1)
-    return -1;
-  myproc()->tickets = n;
-  return 0;
-}
