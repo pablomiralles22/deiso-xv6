@@ -1,3 +1,5 @@
+#include "../kernel/pstat.h"
+
 struct stat;
 struct rtcdate;
 

@@ -101,11 +101,20 @@ uint64
 sys_getpinfo(void)
 {
   uint64 addr;
-  struct proc *pr = myproc();
+  struct pstat ps = { 0 };
 
   if(argaddr(0, &addr) < 0)
     return -1;
-  if(copyout(pr->pagetable, addr, (char *) &pstat, sizeof(pstat)) < 0)
+
+  for(int i = 0; i < NPROC; ++i) {
+    /* if(proc[i].state != UNUSED) { */
+    ps.inuse[i]   = proc[i].state != UNUSED;
+    ps.pid[i]     = proc[i].pid;
+    ps.tickets[i] = proc[i].tickets;
+    ps.ticks[i]   = proc[i].ticks;
+  }
+
+  if(copyout(myproc()->pagetable, addr, (char *) &ps, sizeof(struct pstat)) < 0)
     return -1;
   return 0;
 }
