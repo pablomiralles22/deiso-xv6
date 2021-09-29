@@ -453,7 +453,6 @@ unsigned next_random() {
   return lcg_parkmiller(&random_seed);
 }
 
-
 // Per-CPU process scheduler.
 // Each CPU calls scheduler() after setting itself up.
 // Scheduler never returns.  It loops, doing:
@@ -464,7 +463,7 @@ unsigned next_random() {
 void
 scheduler(void)
 {
-  struct proc *p, *last_available;
+  struct proc *p, *selected;
   struct cpu *c = mycpu();
   int total_tickets, cum_tickets, target_tickets; // TODO long long?
   
@@ -475,7 +474,7 @@ scheduler(void)
 
     total_tickets = 0;
     cum_tickets = 0;
-    last_available = 0;
+    selected = 0;
 
     for(p = proc; p < &proc[NPROC]; p++)
       if(p->state == RUNNABLE)
@@ -487,25 +486,17 @@ scheduler(void)
     for(p = proc; p < &proc[NPROC]; p++)
       if(p->state == RUNNABLE) {
         cum_tickets += p->tickets;
-        last_available = p;
-        if(cum_tickets >= target_tickets) {
-          last_available = 0;
-          acquire(&p->lock);
-          p->state = RUNNING;
-          c->proc = p;
-          swtch(&c->context, &p->context);
-          c->proc = 0;
-          release(&p->lock);
+        selected = p;
+        if(cum_tickets >= target_tickets)
           break;
-        }
       }
-    if(last_available != 0) {
-      acquire(&last_available->lock);
-      last_available->state = RUNNING;
-      c->proc = last_available;
-      swtch(&c->context, &last_available->context);
+    if(selected != 0) {
+      acquire(&selected->lock);
+      selected->state = RUNNING;
+      c->proc = selected;
+      swtch(&c->context, &selected->context);
       c->proc = 0;
-      release(&last_available->lock);
+      release(&selected->lock);
     }
   }
 }
