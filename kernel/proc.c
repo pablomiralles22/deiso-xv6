@@ -6,6 +6,8 @@
 #include "proc.h"
 #include "defs.h"
 
+static uint ticks_last_start;
+
 struct cpu cpus[NCPU];
 
 struct proc proc[NPROC];
@@ -507,6 +509,10 @@ scheduler(void)
       swtch(&c->context, &selected->context);
       c->proc = 0;
       release(&selected->lock);
+      // Read ticks and write in global variable
+      acquire(&tickslock);
+      ticks_last_start = ticks;
+      release(&tickslock);
     }
   }
 }
@@ -535,6 +541,12 @@ sched(void)
 
   intena = mycpu()->intena;
   swtch(&p->context, &mycpu()->context);
+
+  // Add difference of ticks to process' ticks counter
+  acquire(&tickslock);
+  p->ticks += ticks - ticks_last_start;
+  release(&tickslock);
+  
   mycpu()->intena = intena;
 }
 
