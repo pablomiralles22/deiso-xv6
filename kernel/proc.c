@@ -163,6 +163,8 @@ freeproc(struct proc *p)
   p->chan = 0;
   p->killed = 0;
   p->xstate = 0;
+  p->tickets = 0;
+  p->ticks = 0;
   p->state = UNUSED;
 }
 
@@ -234,6 +236,10 @@ userinit(void)
   // and data into it.
   uvminit(p->pagetable, initcode, sizeof(initcode));
   p->sz = PGSIZE;
+
+  // Set number of tickets to minimum and ticks to 0
+  p->tickets = MINTICKETS;
+  p->ticks = 0;
 
   // prepare for the very first "return" from kernel to user.
   p->trapframe->epc = 0;      // user program counter
