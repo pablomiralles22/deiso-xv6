@@ -437,6 +437,32 @@ wait(uint64 addr)
   }
 }
 
+/*
+ * RANDOM NUMBER GENERATOR
+ * https://en.wikipedia.org/wiki/Lehmer_random_number_generator
+ * https://www.cs.virginia.edu/~cr4bd/4414/F2019/files/lcg_parkmiller_c.txt
+ */
+static unsigned random_seed = 1;
+
+#define RANDOM_MAX ((1u << 63u) - 1u)
+unsigned lcg_parkmiller(unsigned *state)
+{
+  const unsigned N = 0x7fffffff;
+  const unsigned G = 48271u;
+
+  unsigned div = *state / (N / G);  /* max : 2,147,483,646 / 44,488 = 48,271 */
+  unsigned rem = *state % (N / G);  /* max : 2,147,483,646 % 44,488 = 44,487 */
+
+  unsigned a = rem * G;        /* max : 44,487 * 48,271 = 2,147,431,977 */
+  unsigned b = div * (N % G);  /* max : 48,271 * 3,399 = 164,073,129 */
+
+  return *state = (a > b) ? (a - b) : (a + (N - b));
+}
+
+unsigned next_random() {
+  return lcg_parkmiller(&random_seed);
+}
+
 // Per-CPU process scheduler.
 // Each CPU calls scheduler() after setting itself up.
 // Scheduler never returns.  It loops, doing:
@@ -447,29 +473,40 @@ wait(uint64 addr)
 void
 scheduler(void)
 {
-  struct proc *p;
+  struct proc *p, *selected;
   struct cpu *c = mycpu();
+  int total_tickets, cum_tickets, target_tickets; // TODO long long?
   
   c->proc = 0;
   for(;;){
     // Avoid deadlock by ensuring that devices can interrupt.
     intr_on();
 
-    for(p = proc; p < &proc[NPROC]; p++) {
-      acquire(&p->lock);
-      if(p->state == RUNNABLE) {
-        // Switch to chosen process.  It is the process's job
-        // to release its lock and then reacquire it
-        // before jumping back to us.
-        p->state = RUNNING;
-        c->proc = p;
-        swtch(&c->context, &p->context);
+    total_tickets = 0;
+    cum_tickets = 0;
+    selected = 0;
 
-        // Process is done running for now.
-        // It should have changed its p->state before coming back.
-        c->proc = 0;
+    for(p = proc; p < &proc[NPROC]; p++)
+      if(p->state == RUNNABLE)
+        total_tickets += p->tickets;
+    // TODO: pueden cambiar entre un bucle y el otro?
+
+    target_tickets = next_random() % total_tickets;
+
+    for(p = proc; p < &proc[NPROC]; p++)
+      if(p->state == RUNNABLE) {
+        cum_tickets += p->tickets;
+        selected = p;
+        if(cum_tickets >= target_tickets)
+          break;
       }
-      release(&p->lock);
+    if(selected != 0) {
+      acquire(&selected->lock);
+      selected->state = RUNNING;
+      c->proc = selected;
+      swtch(&c->context, &selected->context);
+      c->proc = 0;
+      release(&selected->lock);
     }
   }
 }
