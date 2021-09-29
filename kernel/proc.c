@@ -298,7 +298,7 @@ fork(void)
   np->sz = p->sz;
 
   // Set number of tickets to minimum and ticks to 0
-  np->tickets = MINTICKETS;
+  np->tickets = p->tickets;
   np->ticks = 0;
 
   // copy saved user registers.
@@ -491,9 +491,14 @@ scheduler(void)
     for(p = proc; p < &proc[NPROC]; p++)
       if(p->state == RUNNABLE)
         total_tickets += p->tickets;
+      /* else if(p->state != UNUSED && p->state != SLEEPING) { */
+      /*   printf("(%d, %d) ", p->pid, p->state); */
+      /* } */
     // TODO: pueden cambiar entre un bucle y el otro?
 
+    if(total_tickets == 0) continue;
     target_tickets = next_random() % total_tickets;
+    /* printf("%d - %d -->", total_tickets, target_tickets); */
 
     for(p = proc; p < &proc[NPROC]; p++)
       if(p->state == RUNNABLE) {
@@ -504,6 +509,7 @@ scheduler(void)
       }
     if(selected != 0) {
       acquire(&selected->lock);
+      /* printf("%d", p->pid); */
       selected->state = RUNNING;
       c->proc = selected;
       swtch(&c->context, &selected->context);
@@ -514,6 +520,7 @@ scheduler(void)
       ticks_last_start = ticks;
       release(&tickslock);
     }
+    /* printf("\n"); */
   }
 }
 
@@ -539,13 +546,15 @@ sched(void)
   if(intr_get())
     panic("sched interruptible");
 
+  // Add difference of ticks to process' ticks counter
+  acquire(&tickslock);
+  /* printf("%d %d %d\n", p->pid, ticks, ticks_last_start); */
+  p->ticks += ticks - ticks_last_start;
+  release(&tickslock);
+
   intena = mycpu()->intena;
   swtch(&p->context, &mycpu()->context);
 
-  // Add difference of ticks to process' ticks counter
-  acquire(&tickslock);
-  p->ticks += ticks - ticks_last_start;
-  release(&tickslock);
   
   mycpu()->intena = intena;
 }
