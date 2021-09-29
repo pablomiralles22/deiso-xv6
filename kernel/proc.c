@@ -289,6 +289,10 @@ fork(void)
   }
   np->sz = p->sz;
 
+  // Set number of tickets to minimum and ticks to 0
+  np->tickets = MINTICKETS;
+  np->ticks = 0;
+
   // copy saved user registers.
   *(np->trapframe) = *(p->trapframe);
 
