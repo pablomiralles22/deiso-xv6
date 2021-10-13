@@ -491,14 +491,10 @@ scheduler(void)
     for(p = proc; p < &proc[NPROC]; p++)
       if(p->state == RUNNABLE)
         total_tickets += p->tickets;
-      /* else if(p->state != UNUSED && p->state != SLEEPING) { */
-      /*   printf("(%d, %d) ", p->pid, p->state); */
-      /* } */
     // TODO: pueden cambiar entre un bucle y el otro?
 
     if(total_tickets == 0) continue;
     target_tickets = next_random() % total_tickets;
-    /* printf("%d - %d -->", total_tickets, target_tickets); */
 
     for(p = proc; p < &proc[NPROC]; p++)
       if(p->state == RUNNABLE) {
@@ -509,7 +505,6 @@ scheduler(void)
       }
     if(selected != 0) {
       acquire(&selected->lock);
-      /* printf("%d", p->pid); */
       selected->state = RUNNING;
       c->proc = selected;
       swtch(&c->context, &selected->context);
@@ -520,7 +515,6 @@ scheduler(void)
       ticks_last_start = ticks;
       release(&tickslock);
     }
-    /* printf("\n"); */
   }
 }
 
