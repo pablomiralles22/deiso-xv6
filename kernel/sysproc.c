@@ -102,10 +102,13 @@ uint64
 sys_settickets(void)
 {
   int n;
+  struct proc* p = myproc();
 
-  if(argint(0, &n) < MINTICKETS)
+  if(argint(0, &n) < 0 || n < MINTICKETS)
     return -1;
-  myproc()->tickets = n;
+  acquire(&p->lock);
+  p->tickets = n;
+  release(&p->lock);
   return 0;
 }
 
