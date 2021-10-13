@@ -170,9 +170,10 @@ freeproc(struct proc *p)
   p->xstate = 0;
   p->ticks = 0;
   acquire(&tickets_lock);
-  p->state = UNUSED;
-  total_tickets -= p->tickets;
+  if(p->state == RUNNING || p->state == RUNNABLE)
+    total_tickets -= p->tickets;
   p->tickets = 0;
+  p->state = UNUSED;
   release(&tickets_lock);
 }
 
