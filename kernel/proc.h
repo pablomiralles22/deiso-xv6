@@ -111,3 +111,5 @@ struct proc {
 
 extern struct proc proc[NPROC];
 
+extern uint total_tickets;
+extern struct spinlock tickets_lock;
