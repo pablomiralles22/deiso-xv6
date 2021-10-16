@@ -107,6 +107,8 @@ extern uint64 sys_write(void);
 extern uint64 sys_uptime(void);
 extern uint64 sys_settickets(void);
 extern uint64 sys_getpinfo(void);
+extern uint64 sys_mmap(void);
+extern uint64 sys_munmap(void);
 
 static uint64 (*syscalls[])(void) = {
 [SYS_fork]       sys_fork,
@@ -132,6 +134,8 @@ static uint64 (*syscalls[])(void) = {
 [SYS_close]      sys_close,
 [SYS_settickets] sys_settickets,
 [SYS_getpinfo]   sys_getpinfo,
+[SYS_mmap]       sys_mmap,
+[SYS_munmap]     sys_munmap,
 };
 
 void
