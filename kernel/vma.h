@@ -18,5 +18,6 @@ struct vma {
 };
 
 struct vma *vma_alloc();
+struct vma vma_list[NVMA];
 
 #endif /* VMA_H */

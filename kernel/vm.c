@@ -267,9 +267,22 @@ uint64 lazyalloc(uint64 va)
 {
   char *mem;
   struct proc *p = myproc();
+  struct vma* vma;
 
-  if(va >= p->sz || va < PGROUNDUP(p->trapframe->sp))
-    return 0;
+  // Look for the VMA which has va
+  for(vma = vma_list; vma < &vma_list[NVMA]; vma++) {
+    acquire(&vma->lock);
+    if(vma->start <= va && va <= vma->start + vma->length) break;
+    release(&vma->lock);
+  }
+
+  if(vma == &vma_list[NVMA]) {
+    panic("VMA for virtual address not found!");
+    return -1;
+  }
+
+  // TODO: ver si falta algo
+  
   mem = kalloc();
   if(mem == 0)
     return 0;

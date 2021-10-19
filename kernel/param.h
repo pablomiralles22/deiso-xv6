@@ -12,3 +12,4 @@
 #define FSSIZE     1000  // size of file system in blocks
 #define MAXPATH     128  // maximum file path name
 #define MINTICKETS    1  // min tickets per process
+#define NVMA        128  // max VMAs per process

@@ -1,4 +1,4 @@
-#include "kerner/vma.h"
+#include "kernel/vma.h"
 // Saved registers for kernel context switches.
 struct context {
   uint64 ra;
