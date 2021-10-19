@@ -559,7 +559,6 @@ sched(void)
 
   // Add difference of ticks to process' ticks counter
   acquire(&tickslock);
-  /* printf("%d %d %d\n", p->pid, ticks, ticks_last_start); */
   p->ticks += ticks - ticks_last_start;
   release(&tickslock);
 
