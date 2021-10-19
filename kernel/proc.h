@@ -1,3 +1,4 @@
+#include "kerner/vma.h"
 // Saved registers for kernel context switches.
 struct context {
   uint64 ra;
@@ -107,6 +108,9 @@ struct proc {
   struct file *ofile[NOFILE];  // Open files
   struct inode *cwd;           // Current directory
   char name[16];               // Process name (debugging)
+  struct vma *vma_start;       // List of VMAs of process
+  struct vma vma_end;          // Dummy VMA at the start of list
+  struct vma vma_start;        // Dummy VMA at the end of list
 };
 
 extern struct proc proc[NPROC];

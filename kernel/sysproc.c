@@ -140,6 +140,48 @@ sys_getpinfo(void)
 
 uint64
 sys_mmap(void) {
+  struct proc* p = myproc();
+  uint64 addr;
+  size_t length;
+  int prot, flags, fd;
+  off_t offset;
+
+  if(argaddr(0, &addr) < 0) return -1;
+  if(argaddr(1, &length) < 0) return -1;
+  if(argint(2, &prot) < 0) return -1;
+  if(argint(3, &flags) < 0) return -1;
+  if(argint(4, &fd) < 0) return -1;
+  if(argaddr(5, &offset) < 0) return -1;
+
+  struct vma *vma = vma_alloc();
+
+  
+  /** uint64 start; */
+  vma->length = length;
+  vma->file = p->ofile[fd];
+  vma->offset = offset;
+  vma->permission = permission;
+  vma->flags = flags;
+
+  struct vma *it = p->vma_start;
+
+  while(it->next != NULL) {
+    uint64 available_space = 
+      it->start - (it->next->start + it->next->size);
+    if(available_space >= length) {
+      vma->next = it->next;
+      it->next = vma;
+      release(&vma->lock);
+      return 0;
+    }
+  }
+  if(p->vma_start == &vma_end) {
+    vma->next = p->vma_start;
+    p->vma_start = vma;
+    release(&vma->lock);
+    return 0;
+  }
+  panic("No space in proccess for vma"); // TODO: panic or -1 return
   return -1;
 }
 

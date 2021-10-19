@@ -14,5 +14,5 @@ typedef uint64 size_t;
 # endif
 
 # ifndef __off_t_defined
-typedef long long off_t;
+typedef uint64 off_t; // TODO: should be signed?
 # endif
