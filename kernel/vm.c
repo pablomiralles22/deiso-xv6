@@ -267,13 +267,30 @@ uint64 lazyalloc(uint64 va)
 {
   char *mem;
   struct proc *p = myproc();
+  struct vma* vma;
 
-  if(va >= p->sz || va < PGROUNDUP(p->trapframe->sp))
+  // Look for the VMA which has va
+
+  for(vma = &p->vma_start; vma != &p->vma_end; vma++) {
+    acquire(&vma->lock);
+    if(vma->start <= va && va <= vma->start + vma->length) break;
+    release(&vma->lock);
+  }
+
+  if(vma == &p->vma_end && (va >= p->sz || va < PGROUNDUP(p->trapframe->sp)))
     return 0;
+  
   mem = kalloc();
   if(mem == 0)
     return 0;
-  memset(mem, 0, PGSIZE);  
+
+  if(vma != &p->vma_end) {
+    int off = PGROUNDDOWN(va) - vma->start + vma->offset;
+    ilock(vma->file->ip);
+    readi(vma->file->ip, 0, (uint64)mem, off, PGSIZE);
+    iunlock(vma->file->ip);
+  } else memset(mem, 0, PGSIZE);
+  
   if(mappages(p->pagetable, PGROUNDDOWN(va), PGSIZE, (uint64)mem, PTE_W|PTE_X|PTE_R|PTE_U) != 0){
     kfree(mem);
     return 0;

@@ -4,6 +4,7 @@
 #include "types.h"
 #include "file.h"
 #include "spinlock.h"
+#include "param.h"
 
 struct vma {
   uint64 start;

@@ -1,7 +1,6 @@
 #include "file.h"
 #include "defs.h"
 #include "vma.h"
-#define NVMA 128
 
 struct vma vma_list[NVMA];
 
