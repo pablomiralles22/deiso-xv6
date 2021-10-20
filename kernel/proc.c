@@ -170,6 +170,12 @@ freeproc(struct proc *p)
   p->killed = 0;
   p->xstate = 0;
   p->ticks = 0;
+
+  p->vma_end.length = 0;
+  for(struct vma *it = &p->vma_start; it->next != 0; ++it)
+    vma_free(it);
+  p->vma_start.next = &p->vma_end;
+
   acquire(&tickets_lock);
   if(p->state == RUNNING || p->state == RUNNABLE)
     total_tickets -= p->tickets;

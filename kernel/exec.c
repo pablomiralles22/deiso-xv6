@@ -112,6 +112,10 @@ exec(char *path, char **argv)
   oldpagetable = p->pagetable;
   p->pagetable = pagetable;
   p->sz = sz;
+  p->vma_end.length = sz;
+  for(struct vma *it = p->vma_start.next; it->next != 0; ++it)
+    vma_free(it);
+  p->vma_start.next = &p->vma_end;
   p->trapframe->epc = elf.entry;  // initial program counter = main
   p->trapframe->sp = sp; // initial stack pointer
   proc_freepagetable(oldpagetable, oldsz);
