@@ -283,18 +283,17 @@ uint64 lazyalloc(uint64 va)
   mem = kalloc();
   if(mem == 0)
     return 0;
-
-  if(vma != &p->vma_end) {
-    int off = PGROUNDDOWN(va) - vma->start + vma->offset;
-    ilock(vma->file->ip);
-    readi(vma->file->ip, 0, (uint64)mem, off, PGSIZE);
-    iunlock(vma->file->ip);
-  } else memset(mem, 0, PGSIZE);
+  memset(mem, 0, PGSIZE);
   
   if(mappages(p->pagetable, PGROUNDDOWN(va), PGSIZE, (uint64)mem, PTE_W|PTE_X|PTE_R|PTE_U) != 0){
     kfree(mem);
     return 0;
   }
+
+  if(vma != &p->vma_end) {
+    int off = PGROUNDDOWN(va) - vma->start + vma->offset;
+    fileread(vma->file, PGROUNDDOWN(va), off);
+  } 
   return (uint64)mem;
 }
 
