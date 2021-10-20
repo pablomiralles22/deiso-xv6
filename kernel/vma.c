@@ -1,7 +1,6 @@
 #include "file.h"
 #include "defs.h"
 #include "vma.h"
-#include "param.h"
 
 struct vma vma_list[NVMA];
 

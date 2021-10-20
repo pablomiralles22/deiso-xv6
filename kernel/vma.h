@@ -4,6 +4,7 @@
 #include "types.h"
 #include "file.h"
 #include "spinlock.h"
+#include "param.h"
 
 struct vma {
   uint64 start;
@@ -18,6 +19,5 @@ struct vma {
 };
 
 struct vma *vma_alloc();
-struct vma vma_list[NVMA];
 
 #endif /* VMA_H */
