@@ -261,7 +261,20 @@ userinit(void)
   total_tickets += p->tickets;
   p->state = RUNNABLE;
   release(&tickets_lock);
-  p->vma_start = &p->vma_end;
+
+  p->vma_start.file = 0;
+  p->vma_start.length = 2 * PGSIZE;
+  p->vma_start.start = MAXVA - 2 * PGSIZE;
+  p->vma_start.permission = 0;
+  p->vma_start.offset = 0;
+  p->vma_start.next = &p->vma_end;
+
+  p->vma_end.file = 0;
+  p->vma_end.length = PGSIZE;
+  p->vma_end.start = 0;
+  p->vma_end.permission = 0;
+  p->vma_end.offset = 0;
+  p->vma_end.next = 0;
 
   release(&p->lock);
 }
@@ -340,35 +353,20 @@ fork(void)
   np->state = RUNNABLE;
   release(&tickets_lock);
 
-  if(p->vma_start == &p->vma_end)
-    np->vma_start = &np->vma_end;
-  else {
-    np->vma_start = vma_alloc();
-    np->vma_start->length = p->vma_start->length;
-    np->vma_start->file = p->vma_start->file;
-    np->vma_start->offset = p->vma_start->offset;
-    np->vma_start->permission = p->vma_start->permission;
-    np->vma_start->flags = p->vma_start->flags;
+  np->vma_start = p->vma_start; // pointer to next overriden later
+                                // TODO: problem with lock?
 
-    filedup(np->vma_start->file);
+  struct vma *it1 = &p->vma_start,
+             *it2 = &np->vma_start;
 
-    struct vma *it1 = p->vma_start,
-               *it2 = np->vma_start;
-
-    while(it1->next != &p->vma_end) {
-      it2->next = vma_alloc();
-      it1 = it1->next;
-      it2 = it2->next;
-      it2->length = it1->length;
-      it2->file = it1->file;
-      it2->offset = it1->offset;
-      it2->permission = it1->permission;
-      it2->flags = it1->flags;
-
-      filedup(it2->file);
-    }
-    it2->next = &np->vma_end;
+  while(it1->next != &p->vma_end) {
+    it2->next = vma_alloc();
+    it1 = it1->next;
+    it2 = it2->next;
+    *it2 = *it1;
+    filedup(it2->file);
   }
+    it2->next = &np->vma_end;
   release(&np->lock);
 
   return pid;

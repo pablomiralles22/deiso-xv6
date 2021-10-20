@@ -20,8 +20,10 @@ void vma_free(struct vma *vma) {
   fileclose(vma->file); // TODO: if we have vmas that don't correspond to file, check
   vma->start = 0;
   vma->length = 0;
-  vma->length = 0;
-  vma->length = 0;
-  vma->length = 0;
+  vma->next = 0;
+  vma->file = 0;
+  vma->offset = 0;
+  vma->permission = 0;
+  vma->flags = 0;
   release(&vma->lock);
 }
