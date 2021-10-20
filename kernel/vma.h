@@ -1,9 +1,9 @@
-#include "kernel/types.h"
-#include "kernel/file.h"
-#include "kernel/spinlock.h"
-
 #ifndef VMA_H
 #define VMA_H
+
+#include "types.h"
+#include "file.h"
+#include "spinlock.h"
 
 struct vma {
   uint64 start;

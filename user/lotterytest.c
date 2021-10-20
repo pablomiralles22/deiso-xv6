@@ -1,7 +1,7 @@
-#include "kernel/types.h"
-#include "kernel/stat.h"
-#include "kernel/pstat.h"
-#include "user/user.h"
+#include "../kernel/types.h"
+#include "../kernel/stat.h"
+#include "../kernel/pstat.h"
+#include "user.h"
 
 #define N_THREADS 5
 #define X_SPIN 1e5

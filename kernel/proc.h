@@ -1,4 +1,9 @@
-#include "kerner/vma.h"
+#ifndef PROC_H
+#define PROC_H
+#include "vma.h"
+#include "param.h"
+#include "riscv.h"
+
 // Saved registers for kernel context switches.
 struct context {
   uint64 ra;
@@ -110,10 +115,10 @@ struct proc {
   char name[16];               // Process name (debugging)
   struct vma *vma_start;       // List of VMAs of process
   struct vma vma_end;          // Dummy VMA at the start of list
-  struct vma vma_start;        // Dummy VMA at the end of list
 };
 
 extern struct proc proc[NPROC];
 
 extern uint total_tickets;
 extern struct spinlock tickets_lock;
+#endif /* PROC_H */
