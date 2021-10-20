@@ -1,3 +1,5 @@
+#ifndef TYPES_H
+#define TYPES_H
 typedef unsigned int   uint;
 typedef unsigned short ushort;
 typedef unsigned char  uchar;
@@ -16,3 +18,4 @@ typedef uint64 size_t;
 # ifndef __off_t_defined
 typedef uint64 off_t; // TODO: should be signed?
 # endif
+#endif /* TYPES_H */

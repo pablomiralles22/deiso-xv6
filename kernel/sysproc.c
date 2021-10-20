@@ -155,17 +155,18 @@ sys_mmap(void) {
 
   struct vma *vma = vma_alloc();
 
-  
-  /** uint64 start; */
+
   vma->length = length;
   vma->file = p->ofile[fd];
   vma->offset = offset;
-  // vma->permission = permission; TODO
+  vma->permission = prot;
   vma->flags = flags;
+  
+  filedup(vma->file);
 
   struct vma *it = p->vma_start;
 
-  while(it->next != NULL) {
+  while(it->next != 0) {
     uint64 available_space = 
       it->start - (it->next->start + it->next->length);
     if(available_space >= length) {

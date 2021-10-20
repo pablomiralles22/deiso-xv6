@@ -1,5 +1,9 @@
-#include "kernel/vma.h"
+#include "file.h"
+#include "defs.h"
+#include "vma.h"
 #include "param.h"
+
+struct vma vma_list[NVMA];
 
 struct vma *vma_alloc() {
   struct vma* vma;
@@ -9,4 +13,15 @@ struct vma *vma_alloc() {
     release(&vma->lock);
   }
   panic("Out of VMAs");
+}
+
+void vma_free(struct vma *vma) {
+  acquire(&vma->lock);
+  fileclose(vma->file); // TODO: if we have vmas that don't correspond to file, check
+  vma->start = 0;
+  vma->length = 0;
+  vma->length = 0;
+  vma->length = 0;
+  vma->length = 0;
+  release(&vma->lock);
 }

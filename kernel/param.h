@@ -1,3 +1,5 @@
+#ifndef PARAM_H
+#define PARAM_H
 #define NPROC        64  // maximum number of processes
 #define NCPU          8  // maximum number of CPUs
 #define NOFILE       16  // open files per process
@@ -13,3 +15,4 @@
 #define MAXPATH     128  // maximum file path name
 #define MINTICKETS    1  // min tickets per process
 #define NVMA        128  // max VMAs per process
+#endif /* PARAM_H */
