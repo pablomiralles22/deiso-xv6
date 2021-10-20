@@ -113,8 +113,8 @@ struct proc {
   struct file *ofile[NOFILE];  // Open files
   struct inode *cwd;           // Current directory
   char name[16];               // Process name (debugging)
-  struct vma *vma_start;       // List of VMAs of process
-  struct vma vma_end;          // Dummy VMA at the start of list
+  struct vma vma_start;        // Dummy VMA for MAXVA - 2 pages
+  struct vma vma_end;          // Dummy VMA from Heap downwards
 };
 
 extern struct proc proc[NPROC];

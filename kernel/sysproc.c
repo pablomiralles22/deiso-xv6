@@ -164,7 +164,7 @@ sys_mmap(void) {
   
   filedup(vma->file);
 
-  struct vma *it = p->vma_start;
+  struct vma *it = &p->vma_start;
 
   while(it->next != 0) {
     uint64 available_space = 
@@ -175,12 +175,6 @@ sys_mmap(void) {
       release(&vma->lock);
       return 0;
     }
-  }
-  if(p->vma_start == &p->vma_end) {
-    vma->next = p->vma_start;
-    p->vma_start = vma;
-    release(&vma->lock);
-    return 0;
   }
   panic("No space in proccess for vma"); // TODO: panic or -1 return
   return -1;
