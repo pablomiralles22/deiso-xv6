@@ -51,6 +51,7 @@ sys_sbrk(void)
   if((addr + n) >= MAXVA - 2*PGSIZE || (addr + n) < PGROUNDUP(p->trapframe->sp))
     return addr;
   p->sz = (n < 0) ? uvmdealloc(p->pagetable, addr, addr + n) : addr + n;
+  p->vma_end.length = p->sz;
   return addr;
 }
 
