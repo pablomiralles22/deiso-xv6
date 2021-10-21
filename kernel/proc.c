@@ -410,7 +410,7 @@ exit(int status)
     }
   }
 
-  for(struct vma *it = p->vma_start.next; it->next != 0; ++it)
+  for(struct vma *it = p->vma_start.next; it->next != 0; it = it->next)
     vma_free(it);
 
   begin_op();

@@ -146,7 +146,10 @@ kerneltrap()
   if(intr_get() != 0)
     panic("kerneltrap: interrupts enabled");
 
-  if((which_dev = devintr()) == 0){
+  if(r_scause() == 13 || r_scause() == 15) {
+    if(walkaddr(myproc()->pagetable, r_stval()) <= 0)
+      panic("kerneltrap: lazy allocation");
+  } else if((which_dev = devintr()) == 0){
     printf("scause %p\n", scause);
     printf("sepc=%p stval=%p\n", r_sepc(), r_stval());
     panic("kerneltrap");

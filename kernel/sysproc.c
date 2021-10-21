@@ -163,7 +163,6 @@ sys_mmap(void) {
   vma->permission = prot;
   vma->flags = flags;
   
-  filedup(vma->file);
 
   struct vma *it = &p->vma_start;
 
@@ -171,6 +170,7 @@ sys_mmap(void) {
     uint64 available_space = 
       it->start - (it->next->start + it->next->length);
     if(available_space >= length) {
+      filedup(vma->file);
       vma->start = (it->start - vma->length);
       vma->next = it->next;
       it->next = vma;
@@ -178,7 +178,8 @@ sys_mmap(void) {
       return vma->start;
     }
   }
-  /** panic("No space in proccess for vma"); // TODO: panic or -1 return */
+  release(&vma->lock);
+  vma_free(vma);
   return -1;
 }
 
