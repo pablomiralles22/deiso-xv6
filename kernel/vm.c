@@ -113,7 +113,7 @@ walkaddr(pagetable_t pagetable, uint64 va)
 
   pte = walk(pagetable, va, 0);
   if(pte == 0 || (*pte & PTE_V) == 0 || (*pte & PTE_U) == 0){
-    uint64 lazypa = lazyalloc(va);
+    uint64 lazypa = lazyalloc(pagetable, va);
     pa = (lazypa <= 0) ? 0 : lazypa;
   } else
     pa = PTE2PA(*pte);
@@ -148,8 +148,8 @@ mappages(pagetable_t pagetable, uint64 va, uint64 size, uint64 pa, int perm)
   for(;;){
     if((pte = walk(pagetable, a, 1)) == 0)
       return -1;
-    if(*pte & PTE_V)
-      panic("mappages: remap"); // TODO: comment?
+    /** if(*pte & PTE_V) */
+    /**   panic("mappages: remap"); // TODO: comment? */
     *pte = PA2PTE(pa) | perm | PTE_V;
     if(a == last)
       break;
@@ -263,16 +263,16 @@ uvmdealloc(pagetable_t pagetable, uint64 oldsz, uint64 newsz)
 
 // Lazy allocation memory for proc p.
 // Returns address of allocated memory or 0 if failed allocating.
-uint64 lazyalloc(uint64 va) 
+uint64 lazyalloc(pagetable_t pagetable, uint64 va) 
 {
   char *mem;
   struct proc *p = myproc();
   struct vma *vma;
+  int permissions;
 
   // Look for the VMA which has va
 
-  for(vma = &p->vma_start; vma != &p->vma_end; vma++) {
-    /** printf("Check VMA: start: %p - end: %p, va: %p\n", vma->start, vma->start+vma->length, va); */
+  for(vma = &p->vma_start; vma->next != 0; vma = vma->next) {
     if(vma->start <= va && va < vma->start + vma->length)
       break;
   }
@@ -286,16 +286,20 @@ uint64 lazyalloc(uint64 va)
 
   memset(mem, 0, PGSIZE);
 
-  // TODO : permisos para ficheros
-  if(mappages(p->pagetable, PGROUNDDOWN(va), PGSIZE, (uint64)mem, PTE_W|PTE_X|PTE_R|PTE_U) != 0){
-    kfree(mem);
-    return 0;
-  }
+  permissions = PTE_W|PTE_X|PTE_R|PTE_U;
 
   if(vma != &p->vma_end) {
-    /** printf("Accessed file\n"); */
     int off = PGROUNDDOWN(va) - vma->start + vma->offset;
-    fileread(vma->file, off, PGSIZE);
+    ilock(vma->file->ip);
+    readi(vma->file->ip, 0, (uint64) mem, off, PGSIZE); // TODO: assume file?
+    iunlock(vma->file->ip);
+    permissions &= (vma->permission << 1);
+  }
+
+  // TODO : permisos para ficheros
+  if(mappages(pagetable, PGROUNDDOWN(va), PGSIZE, (uint64)mem, permissions) != 0){
+    kfree(mem);
+    return 0;
   }
 
   return (uint64)mem;
