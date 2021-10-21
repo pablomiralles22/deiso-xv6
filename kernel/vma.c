@@ -16,7 +16,7 @@ struct vma *vma_alloc() {
 
 void vma_free(struct vma *vma) {
   acquire(&vma->lock);
-  fileclose(vma->file); // TODO: if we have vmas that don't correspond to file, check
+  if(vma->file) fileclose(vma->file); // TODO: if we have vmas that don't correspond to file, check
   vma->start = 0;
   vma->length = 0;
   vma->next = 0;

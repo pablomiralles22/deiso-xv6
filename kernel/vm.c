@@ -273,7 +273,7 @@ uint64 lazyalloc(uint64 va)
 
   for(vma = &p->vma_start; vma != &p->vma_end; vma++) {
     acquire(&vma->lock);
-    if(vma->start <= va && va <= vma->start + vma->length) break;
+    if(vma->start <= va && va < vma->start + vma->length) break;
     release(&vma->lock);
   }
 
