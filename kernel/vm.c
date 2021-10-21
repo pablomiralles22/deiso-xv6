@@ -148,8 +148,8 @@ mappages(pagetable_t pagetable, uint64 va, uint64 size, uint64 pa, int perm)
   for(;;){
     if((pte = walk(pagetable, a, 1)) == 0)
       return -1;
-    if(*pte & PTE_V)
-      panic("mappages: remap"); // TODO: comment?
+    if(*pte & PTE_V);
+      //panic("mappages: remap"); // TODO: comment?
     *pte = PA2PTE(pa) | perm | PTE_V;
     if(a == last)
       break;
@@ -267,13 +267,15 @@ uint64 lazyalloc(uint64 va)
 {
   char *mem;
   struct proc *p = myproc();
-  struct vma* vma;
+  struct vma *vma;
 
   // Look for the VMA which has va
 
-  for(vma = &p->vma_start; vma != &p->vma_end; vma++)
+  for(vma = &p->vma_start; vma != &p->vma_end; vma++) {
+    /** printf("Check VMA: start: %p - end: %p, va: %p\n", vma->start, vma->start+vma->length, va); */
     if(vma->start <= va && va < vma->start + vma->length)
       break;
+  }
 
   if(vma == &p->vma_end && (va >= p->sz || va < PGROUNDUP(p->trapframe->sp)))
     return 0;
@@ -281,17 +283,21 @@ uint64 lazyalloc(uint64 va)
   mem = kalloc();
   if(mem == 0)
     return 0;
+
   memset(mem, 0, PGSIZE);
-  
+
+  if(vma != &p->vma_end) {
+    int off = PGROUNDDOWN(va) - vma->start + vma->offset;
+    ilock(vma->file->ip);
+    readi(vma->file->ip, 0, (uint64)mem, off, PGSIZE);
+    iunlock(vma->file->ip);
+  } 
+
   if(mappages(p->pagetable, PGROUNDDOWN(va), PGSIZE, (uint64)mem, PTE_W|PTE_X|PTE_R|PTE_U) != 0){
     kfree(mem);
     return 0;
   }
 
-  if(vma != &p->vma_end) {
-    int off = PGROUNDDOWN(va) - vma->start + vma->offset;
-    fileread(vma->file, PGROUNDDOWN(va), off);
-  } 
   return (uint64)mem;
 }
 
