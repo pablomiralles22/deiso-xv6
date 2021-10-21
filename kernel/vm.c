@@ -271,11 +271,9 @@ uint64 lazyalloc(uint64 va)
 
   // Look for the VMA which has va
 
-  for(vma = &p->vma_start; vma != &p->vma_end; vma++) {
-    acquire(&vma->lock);
-    if(vma->start <= va && va <= vma->start + vma->length) break;
-    release(&vma->lock);
-  }
+  for(vma = &p->vma_start; vma != &p->vma_end; vma++)
+    if(vma->start <= va && va < vma->start + vma->length)
+      break;
 
   if(vma == &p->vma_end && (va >= p->sz || va < PGROUNDUP(p->trapframe->sp)))
     return 0;

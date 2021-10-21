@@ -16,7 +16,8 @@ struct vma *vma_alloc() {
 
 void vma_free(struct vma *vma) {
   acquire(&vma->lock);
-  fileclose(vma->file); // TODO: if we have vmas that don't correspond to file, check
+  /** if(vma->file != 0) */
+  /**   fileclose(vma->file); // TODO: if we have vmas that don't correspond to file, check */
   vma->start = 0;
   vma->length = 0;
   vma->next = 0;
@@ -25,4 +26,15 @@ void vma_free(struct vma *vma) {
   vma->permission = 0;
   vma->flags = 0;
   release(&vma->lock);
+}
+
+// needs a's lock to be taken
+void vma_copy(struct vma *a, struct vma *b) {
+  a->start = b->start;
+  a->length = b->length;
+  a->next = b->next;
+  a->file = b->file;
+  a->offset = b->offset;
+  a->permission = b->permission;
+  a->flags = b->flags;
 }

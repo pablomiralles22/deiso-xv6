@@ -20,5 +20,6 @@ struct vma {
 
 struct vma *vma_alloc();
 void vma_free(struct vma *vma);
+void vma_copy(struct vma *a, struct vma *b);
 
 #endif /* VMA_H */

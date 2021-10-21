@@ -171,6 +171,7 @@ sys_mmap(void) {
     uint64 available_space = 
       it->start - (it->next->start + it->next->length);
     if(available_space >= length) {
+      vma->start = (it->start - vma->length);
       vma->next = it->next;
       it->next = vma;
       release(&vma->lock);
