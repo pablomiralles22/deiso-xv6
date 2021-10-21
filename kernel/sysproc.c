@@ -175,10 +175,10 @@ sys_mmap(void) {
       vma->next = it->next;
       it->next = vma;
       release(&vma->lock);
-      return 0;
+      return vma->start;
     }
   }
-  panic("No space in proccess for vma"); // TODO: panic or -1 return
+  /** panic("No space in proccess for vma"); // TODO: panic or -1 return */
   return -1;
 }
 

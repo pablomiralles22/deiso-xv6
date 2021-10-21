@@ -267,13 +267,15 @@ uint64 lazyalloc(uint64 va)
 {
   char *mem;
   struct proc *p = myproc();
-  struct vma* vma;
+  struct vma *vma;
 
   // Look for the VMA which has va
 
-  for(vma = &p->vma_start; vma != &p->vma_end; vma++)
+  for(vma = &p->vma_start; vma != &p->vma_end; vma++) {
+    /** printf("Check VMA: start: %p - end: %p, va: %p\n", vma->start, vma->start+vma->length, va); */
     if(vma->start <= va && va < vma->start + vma->length)
       break;
+  }
 
   if(vma == &p->vma_end && (va >= p->sz || va < PGROUNDUP(p->trapframe->sp)))
     return 0;
@@ -282,17 +284,20 @@ uint64 lazyalloc(uint64 va)
   if(mem == 0)
     return 0;
 
-  if(vma != &p->vma_end) {
-    int off = PGROUNDDOWN(va) - vma->start + vma->offset;
-    ilock(vma->file->ip);
-    readi(vma->file->ip, 0, (uint64)mem, off, PGSIZE);
-    iunlock(vma->file->ip);
-  } else memset(mem, 0, PGSIZE);
-  
+  memset(mem, 0, PGSIZE);
+
+  // TODO : permisos para ficheros
   if(mappages(p->pagetable, PGROUNDDOWN(va), PGSIZE, (uint64)mem, PTE_W|PTE_X|PTE_R|PTE_U) != 0){
     kfree(mem);
     return 0;
   }
+
+  if(vma != &p->vma_end) {
+    /** printf("Accessed file\n"); */
+    int off = PGROUNDDOWN(va) - vma->start + vma->offset;
+    fileread(vma->file, off, PGSIZE);
+  }
+
   return (uint64)mem;
 }
 

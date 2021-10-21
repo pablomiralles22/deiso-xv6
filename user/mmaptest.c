@@ -40,6 +40,7 @@ _v1(char *p)
   int i;
   for (i = 0; i < PGSIZE*2; i++) {
     if (i < PGSIZE + (PGSIZE/2)) {
+      printf("%c", p[i]);
       if (p[i] != 'A') {
         printf("mismatch at %d, wanted 'A', got 0x%x\n", i, p[i]);
         err("v1 mismatch (1)");
@@ -113,7 +114,11 @@ mmap_test(void)
   char *p = mmap(0, PGSIZE*2, PROT_READ, MAP_PRIVATE, fd, 0);
   if (p == MAP_FAILED)
     err("mmap (1)");
+  printf("MMAP NOT OK\n");
+
   _v1(p);
+  printf("MMAP OK\n");
+
   if (munmap(p, PGSIZE*2) == -1)
     err("munmap (1)");
 
@@ -152,6 +157,7 @@ mmap_test(void)
 
   // check that the mapping still works after close(fd).
   _v1(p);
+
 
   // write the mapped memory.
   for (i = 0; i < PGSIZE*2; i++)
