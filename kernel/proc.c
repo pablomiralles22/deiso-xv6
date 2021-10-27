@@ -411,7 +411,7 @@ exit(int status)
   }
 
   for(struct vma *it = p->vma_start.next; it->next != 0; it = it->next)
-    vma_free(it);
+    vma_free(it, 0);
 
   begin_op();
   iput(p->cwd);

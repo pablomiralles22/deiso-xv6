@@ -141,7 +141,8 @@ sys_getpinfo(void)
 
 uint64
 sys_mmap(void) {
-  struct proc* p = myproc();
+  struct proc *p = myproc();
+  struct file *f;
   uint64 addr;
   size_t length;
   int prot, flags, fd;
@@ -154,6 +155,16 @@ sys_mmap(void) {
   if(argint(4, &fd) < 0) return -1;
   if(argaddr(5, &offset) < 0) return -1;
 
+  f = p->ofile[fd];
+
+  if(f == 0) return -1;
+  if((prot & PROT_WRITE) && (flags & MAP_SHARED) && (!f->writable)) {
+    return -1;
+  }
+  if((prot & PROT_READ) && (!f->readable)) {
+    return -1;
+  }
+
   struct vma *vma = vma_alloc();
 
   struct vma *it = &p->vma_start;
@@ -163,7 +174,7 @@ sys_mmap(void) {
       it->start - (it->next->start + it->next->length);
     if(available_space >= length) {
       vma->length = length;
-      vma->file = p->ofile[fd];
+      vma->file = f;
       vma->offset = offset;
       vma->permission = prot;
       vma->flags = flags;
@@ -177,12 +188,46 @@ sys_mmap(void) {
     }
   }
   release(&vma->lock);
-  vma_free(vma);
+  vma_free(vma, 0);
   return -1;
 }
 
 uint64
 sys_munmap(void) {
+  struct proc* p = myproc();
+  uint64 addr;
+  size_t length;
+
+  if(argaddr(0, &addr) < 0) return -1;
+  if(argaddr(1, &length) < 0) return -1;
+
+  struct vma *it = &p->vma_start;
+  struct vma *prev = 0;
+
+  for(; it->next != 0; prev = it, it = it->next)
+    if(it->start <= addr && it->start + it->length >= addr + length) {
+      // found VMA
+      if(it->start == addr && it->start + it->length == addr+length) {
+        vma_free(it, prev);
+        return 0;
+      }
+
+      vma_free_mem(it, prev, addr, length);
+
+      if(it->start == addr) { 
+        acquire(&it->lock);
+        it->start = addr + length;
+        it->length -= length;
+        release(&it->lock);
+      } else if(it->start + it->length == addr + length) {
+        acquire(&it->lock);
+        it->length -= length;
+        release(&it->lock);
+      } else {
+        printf("Hole in vma not supported. Range: %p - %p", addr, addr + length);
+        return -1;
+      }
+    }
+  printf("VMA not found. Range: %p - %p", addr, addr + length);
   return -1;
 }
-

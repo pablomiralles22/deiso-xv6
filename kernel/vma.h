@@ -25,8 +25,8 @@ struct vma {
 };
 
 struct vma *vma_alloc();
-void vma_write_file(struct vma *vma, uint64 addr, uint64 length);
-void vma_free(struct vma *vma);
+void vma_free_mem(struct vma *vma, struct vma *prev, uint64 addr, uint64 length);
+void vma_free(struct vma *vma, struct vma *prev);
 void vma_copy(struct vma *a, struct vma *b);
 
 #endif /* VMA_H */
