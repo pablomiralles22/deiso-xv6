@@ -6,6 +6,12 @@
 #include "spinlock.h"
 #include "param.h"
 
+#define PROT_READ           0x001
+#define PROT_WRITE          0x002
+
+#define MAP_SHARED          0x001
+#define MAP_PRIVATE         0x002
+
 struct vma {
   uint64 start;
   uint64 length;
@@ -19,6 +25,7 @@ struct vma {
 };
 
 struct vma *vma_alloc();
+void vma_write_file(struct vma *vma, uint64 addr, uint64 length);
 void vma_free(struct vma *vma);
 void vma_copy(struct vma *a, struct vma *b);
 

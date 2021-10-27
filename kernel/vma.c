@@ -1,6 +1,7 @@
 #include "file.h"
 #include "defs.h"
 #include "vma.h"
+#include "proc.h"
 
 struct vma vma_list[NVMA];
 
@@ -14,10 +15,34 @@ struct vma *vma_alloc() {
   panic("Out of VMAs");
 }
 
+void vma_write_file(struct vma *vma, uint64 addr, uint64 length) {
+  struct file *f = vma->file;
+  struct proc *p = myproc();
+  uint64 pos;
+  uint64 file_pos;
+  uint64 start;
+  uint64 end;
+
+  for(pos = PGROUNDDOWN(addr); pos < addr + length; pos += PGSIZE) {
+    start = addr > pos ? addr : pos;
+    end = pos + PGSIZE > addr + length ? addr+length : pos + PGSIZE;
+    file_pos = start - vma->start + vma->offset;
+
+    if(is_page_mapped(p->pagetable, pos)) {
+      ilock(f->ip);
+      writei(f->ip, 1, pos, file_pos, end - start);
+      iunlock(f->ip);
+    }
+  }
+}
+
 void vma_free(struct vma *vma) {
   acquire(&vma->lock);
-  /** if(vma->file != 0) */
-  /**   fileclose(vma->file); // TODO: if we have vmas that don't correspond to file, check */
+  if(vma->file != 0) {
+    if(vma->flags & MAP_SHARED)
+      vma_write_file(vma, vma->start, vma->length);
+    fileclose(vma->file);
+  }
   vma->start = 0;
   vma->length = 0;
   vma->next = 0;

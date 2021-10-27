@@ -1,6 +1,6 @@
 #include "../kernel/param.h"
 #include "../kernel/fcntl.h"
-#include "../kernel/mmap_flags.h"
+#include "../kernel/vma.h"
 #include "../kernel/types.h"
 #include "../kernel/stat.h"
 #include "../kernel/riscv.h"
@@ -113,10 +113,8 @@ mmap_test(void)
   char *p = mmap(0, PGSIZE*2, PROT_READ, MAP_PRIVATE, fd, 0);
   if (p == MAP_FAILED)
     err("mmap (1)");
-  printf("MMAP NOT OK\n");
 
   _v1(p);
-  printf("MMAP OK\n");
 
   if (munmap(p, PGSIZE*2) == -1)
     err("munmap (1)");
