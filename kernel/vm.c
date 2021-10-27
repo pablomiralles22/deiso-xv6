@@ -293,9 +293,11 @@ uint64 lazyalloc(pagetable_t pagetable, uint64 va)
 
 
   if(vma != &p->vma_end) {
-    int off = PGROUNDDOWN(va) - vma->start + vma->offset;
+    int file_off = va - vma->start + vma->offset;
+    uint64 mem_off = PGROUNDDOWN(va) >= vma->start ? 0
+                      : vma->start - PGROUNDDOWN(va);
     ilock(vma->file->ip);
-    readi(vma->file->ip, 0, (uint64) mem, off, PGSIZE); // TODO: assume file?
+    readi(vma->file->ip, 0, (uint64) mem + mem_off, file_off, PGSIZE - mem_off); // TODO: assume file?
     iunlock(vma->file->ip);
     permissions = (vma->permission << 1)|PTE_U|PTE_X;
   } else permissions = PTE_W|PTE_X|PTE_R|PTE_U;
@@ -346,14 +348,14 @@ uvmfree(pagetable_t pagetable, uint64 sz)
 // returns 0 on success, -1 on failure.
 // frees any allocated pages on failure.
 int
-uvmcopy(pagetable_t old, pagetable_t new, uint64 sz)
+uvmcopy_offseted(pagetable_t old, pagetable_t new, uint64 start, uint64 sz)
 {
   pte_t *pte;
   uint64 pa, i;
   uint flags;
   char *mem;
 
-  for(i = 0; i < sz; i += PGSIZE){
+  for(i = PGROUNDDOWN(start); i < sz; i += PGSIZE){
     pte = walk(old, i, 0);
     if((pte > 0) && (*pte & PTE_V)){
       pa = PTE2PA(*pte);
@@ -372,6 +374,12 @@ uvmcopy(pagetable_t old, pagetable_t new, uint64 sz)
  err:
   uvmunmap(new, 0, i / PGSIZE, 1);
   return -1;
+}
+
+int
+uvmcopy(pagetable_t old, pagetable_t new, uint64 sz)
+{
+  return uvmcopy_offseted(old, new, 0, sz);
 }
 
 // mark a PTE invalid for user access.

@@ -368,6 +368,9 @@ fork(void)
     it2 = it2->next;
     vma_copy(it2, it1);
     release(&it2->lock);
+    filedup(it2->file);
+    printf("Copying %p-%p\n", it1->start, it1->length);
+    uvmcopy_offseted(p->pagetable, np->pagetable, it1->start, it1->length);
   }
   it2->next = &np->vma_end; // no need for lock
   release(&np->lock);
@@ -410,7 +413,7 @@ exit(int status)
     }
   }
 
-  for(struct vma *it = p->vma_start.next; it->next != 0; it = it->next)
+  for(struct vma *it = p->vma_start.next, *next; (next = it->next) != 0; it = next)
     vma_free(it, 0);
 
   begin_op();

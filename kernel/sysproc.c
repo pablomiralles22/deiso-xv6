@@ -158,12 +158,10 @@ sys_mmap(void) {
   f = p->ofile[fd];
 
   if(f == 0) return -1;
-  if((prot & PROT_WRITE) && (flags & MAP_SHARED) && (!f->writable)) {
+  if((prot & PROT_WRITE) && (flags & MAP_SHARED) && (!f->writable))
     return -1;
-  }
-  if((prot & PROT_READ) && (!f->readable)) {
+  if((prot & PROT_READ) && (!f->readable))
     return -1;
-  }
 
   struct vma *vma = vma_alloc();
 
@@ -174,6 +172,8 @@ sys_mmap(void) {
       it->start - (it->next->start + it->next->length);
     if(available_space >= length) {
       vma->length = length;
+      release(&vma->lock);
+
       vma->file = f;
       vma->offset = offset;
       vma->permission = prot;
@@ -183,7 +183,6 @@ sys_mmap(void) {
       filedup(vma->file);
 
       it->next = vma;
-      release(&vma->lock);
       return vma->start;
     }
     it = it->next;
@@ -203,34 +202,29 @@ sys_munmap(void) {
   if(argaddr(1, &length) < 0) return -1;
 
   struct vma *it = &p->vma_start;
-  struct vma *prev = 0;
+  struct vma *prev = 0, *next = 0;
 
   for(; it->next != 0; prev = it, it = it->next)
     if(it->start <= addr && it->start + it->length >= addr + length) {
       // found VMA
-      if(it->start == addr && it->start + it->length == addr+length) {
-        printf("1\n");
+      if(it->start == addr && it->length == length) {
+        next = it->next;
         vma_free(it, prev);
-        printf("2\n");
+        prev->next = next;
         return 0;
       }
-      printf("3\n");
 
       vma_free_mem(it, prev, addr, length);
-
-      printf("4\n");
 
       if(it->start == addr) { 
         acquire(&it->lock);
         it->start = addr + length;
         it->length -= length;
         release(&it->lock);
-        printf("5\n");
       } else if(it->start + it->length == addr + length) {
         acquire(&it->lock);
         it->length -= length;
         release(&it->lock);
-        printf("6\n");
       } else {
         printf("Hole in vma not supported. Range: %p - %p", addr, addr + length);
         return -1;

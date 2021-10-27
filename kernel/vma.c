@@ -19,23 +19,20 @@ void vma_free_mem(struct vma *vma, struct vma *prev, uint64 addr, uint64 length)
   struct file *f = vma->file;
   struct proc *p = myproc();
   int write = (vma->flags & MAP_SHARED);
-  uint64 pos;
-  uint64 file_pos;
-  uint64 start;
-  uint64 end;
-  int free_start, free_end;
 
-  free_start = (!prev || 
+  // Check if I must unmap first and last page
+  int free_start = (!prev || 
                 (PGROUNDDOWN(prev->start + prev->length) != prev->start + prev->length &&
                  PGROUNDDOWN(prev->start + prev->length) != PGROUNDDOWN(vma->start)));
 
-  free_end = (!vma->next || 
+  int free_end = (!vma->next || 
               (PGROUNDDOWN(vma->start + vma->length) != vma->start + vma->length &&
                 PGROUNDDOWN(vma->start + vma->length) != PGROUNDDOWN(vma->next->start)));
 
 
+  uint64 pos, file_pos, start, end;
+
   for(pos = PGROUNDDOWN(addr); pos < addr + length; pos += PGSIZE) {
-    printf("%p\n", pos);
     start = addr > pos ? addr : pos;
     end = pos + PGSIZE > addr + length ? addr + length : pos + PGSIZE;
     file_pos = start - vma->start + vma->offset;
@@ -44,13 +41,15 @@ void vma_free_mem(struct vma *vma, struct vma *prev, uint64 addr, uint64 length)
       if(write) {
         begin_op();
         ilock(f->ip);
-        writei(f->ip, 1, pos, file_pos, end - start);
+        writei(f->ip, 1, start, file_pos, end - start);
         iunlock(f->ip);
         end_op();
       }
-      if((pos == PGROUNDDOWN(addr)          && free_start) || 
-         (pos == PGROUNDDOWN(addr + length) && free_end  ) ||
-          end - start == PGSIZE) {
+      if(PGROUNDDOWN(addr) == PGROUNDDOWN(addr+length) && free_start && free_end)
+        uvmunmap(p->pagetable, pos, 1, 1);
+      else if((pos == PGROUNDDOWN(addr)          && free_start) || 
+              (pos == PGROUNDDOWN(addr + length) && free_end  ) ||
+              end - start == PGSIZE) {
         uvmunmap(p->pagetable, pos, 1, 1);
       }
     }
@@ -58,18 +57,19 @@ void vma_free_mem(struct vma *vma, struct vma *prev, uint64 addr, uint64 length)
 }
 
 void vma_free(struct vma *vma, struct vma *prev) {
-  acquire(&vma->lock);
   if(vma->file != 0) {
     vma_free_mem(vma, prev, vma->start, vma->length);
     fileclose(vma->file);
   }
   vma->start = 0;
-  vma->length = 0;
   vma->next = 0;
   vma->file = 0;
   vma->offset = 0;
   vma->permission = 0;
   vma->flags = 0;
+
+  acquire(&vma->lock);
+  vma->length = 0;
   release(&vma->lock);
 }
 

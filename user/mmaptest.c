@@ -241,14 +241,18 @@ fork_test(void)
   if ((fd = open(f, O_RDONLY)) == -1)
     err("open");
   unlink(f);
+  printf("1\n");
   char *p1 = mmap(0, PGSIZE*2, PROT_READ, MAP_SHARED, fd, 0);
   if (p1 == MAP_FAILED)
     err("mmap (4)");
+  printf("2\n");
   char *p2 = mmap(0, PGSIZE*2, PROT_READ, MAP_SHARED, fd, 0);
   if (p2 == MAP_FAILED)
     err("mmap (5)");
 
+
   // read just 2nd page.
+  printf("3\n");
   if(*(p1+PGSIZE) != 'A')
     err("fork mismatch (1)");
 
@@ -269,8 +273,11 @@ fork_test(void)
   }
 
   // check that the parent's mappings are still there.
+  printf("6\n");
   _v1(p1);
+  printf("7\n");
   _v1(p2);
+  printf("8\n");
 
   printf("fork_test OK\n");
 }
