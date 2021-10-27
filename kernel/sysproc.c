@@ -185,6 +185,42 @@ sys_mmap(void) {
 
 uint64
 sys_munmap(void) {
-  return -1;
-}
+  struct proc* p = myproc();
+  uint64 addr;
+  size_t length;
 
+  if(argaddr(0, &addr) < 0) return -1;
+  if(argaddr(1, &length) < 0) return -1;
+
+  pte_t *pte;
+  struct vma *it = &p->vma_start;
+  uint64 start_addr = PGROUNDDOWN(addr);
+  uint64 end_addr = PGROUNDDOWN(addr + length);
+
+  while(it->next != 0) {
+    if(it->start <= start_addr && it->start + it->length >= end_addr) {
+      for(int i = start_addr; i <= end_addr; i += PGSIZE) {
+        pte = walk(p->pagetable, i, 0);
+        if(pte != 0 && (*pte & PTE_V)) // TODO is it necessary to check PTE_V?
+          uvmunmap(p->pagetable, i, PGSIZE, 0);
+      }
+      if(it->start == start_addr && it->start + it->length == end_addr) { 
+        it->file->ref--;
+        it->length = 0;
+      } else if(it->start == start_addr) { 
+        it->start = end_addr;
+        it->length -= length;
+      } else if(it->start + it->length == end_addr) {
+        it->length -= length;
+      } else {
+        printf("Hole in vma not supported. Range: %p - %p", start_addr, end_addr);
+        return -1;
+      }
+    }
+  }
+  if (!it->next) {
+    printf("VMA not found. Range: %p - %p", start_addr, end_addr);
+    return -1;
+  }
+
+}
