@@ -35,20 +35,24 @@ void vma_free_mem(struct vma *vma, struct vma *prev, uint64 addr, uint64 length)
 
 
   for(pos = PGROUNDDOWN(addr); pos < addr + length; pos += PGSIZE) {
+    printf("%p\n", pos);
     start = addr > pos ? addr : pos;
     end = pos + PGSIZE > addr + length ? addr + length : pos + PGSIZE;
     file_pos = start - vma->start + vma->offset;
 
     if(is_page_mapped(p->pagetable, pos)) {
       if(write) {
+        begin_op();
         ilock(f->ip);
         writei(f->ip, 1, pos, file_pos, end - start);
         iunlock(f->ip);
+        end_op();
       }
       if((pos == PGROUNDDOWN(addr)          && free_start) || 
          (pos == PGROUNDDOWN(addr + length) && free_end  ) ||
-          end - start == PGSIZE)
+          end - start == PGSIZE) {
         uvmunmap(p->pagetable, pos, 1, 1);
+      }
     }
   }
 }

@@ -186,6 +186,7 @@ sys_mmap(void) {
       release(&vma->lock);
       return vma->start;
     }
+    it = it->next;
   }
   release(&vma->lock);
   vma_free(vma, 0);
@@ -208,25 +209,33 @@ sys_munmap(void) {
     if(it->start <= addr && it->start + it->length >= addr + length) {
       // found VMA
       if(it->start == addr && it->start + it->length == addr+length) {
+        printf("1\n");
         vma_free(it, prev);
+        printf("2\n");
         return 0;
       }
+      printf("3\n");
 
       vma_free_mem(it, prev, addr, length);
+
+      printf("4\n");
 
       if(it->start == addr) { 
         acquire(&it->lock);
         it->start = addr + length;
         it->length -= length;
         release(&it->lock);
+        printf("5\n");
       } else if(it->start + it->length == addr + length) {
         acquire(&it->lock);
         it->length -= length;
         release(&it->lock);
+        printf("6\n");
       } else {
         printf("Hole in vma not supported. Range: %p - %p", addr, addr + length);
         return -1;
       }
+      return 0;
     }
   printf("VMA not found. Range: %p - %p", addr, addr + length);
   return -1;

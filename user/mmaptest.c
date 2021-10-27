@@ -196,16 +196,18 @@ mmap_test(void)
   close(fd1);
   unlink("mmap1");
 
+
   int fd2;
   if((fd2 = open("mmap2", O_RDWR|O_CREATE)) < 0)
     err("open mmap2");
-  if(write(fd1, "67890", 5) != 5)
+  if(write(fd2, "67890", 5) != 5)
     err("write mmap2");
   char *p2 = mmap(0, PGSIZE, PROT_READ, MAP_PRIVATE, fd2, 0);
   if(p2 == MAP_FAILED)
     err("mmap mmap2");
   close(fd2);
   unlink("mmap2");
+
 
   if(memcmp(p1, "12345", 5) != 0)
     err("mmap1 mismatch");
