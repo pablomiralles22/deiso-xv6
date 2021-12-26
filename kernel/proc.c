@@ -393,7 +393,11 @@ exit(int status)
   acquire(&p->lock);
 
   p->xstate = status;
+  acquire(&tickets_lock);
+  if(p->state == RUNNING || p->state == RUNNABLE)
+    total_tickets -= p->tickets;
   p->state = ZOMBIE;
+  release(&tickets_lock);
 
   release(&wait_lock);
 
