@@ -144,9 +144,9 @@ sys_mmap(void) {
   struct proc *p = myproc();
   struct file *f;
   uint64 addr;
-  size_t length;
+  size_t length, true_length;
   int prot, flags, fd;
-  off_t offset;
+  off_t offset, true_offset;
 
   if(argaddr(0, &addr) < 0) return -1;
   if(argaddr(1, &length) < 0) return -1;
@@ -163,14 +163,18 @@ sys_mmap(void) {
   if((prot & PROT_READ) && (!f->readable))
     return -1;
 
+  true_offset = PGROUNDDOWN(offset);
+  true_length = PGROUNDUP(length + offset-true_offset);
+  /** if(PGROUNDDOWN(offset) != offset) return -1; */
+
   struct vma *vma = vma_alloc();
 
   struct vma *it = &p->vma_start;
 
   while(it->next != 0) {
     uint64 available_space = 
-      it->start - (it->next->start + it->next->length);
-    if(available_space >= length) {
+      PGROUNDDOWN(it->start) - PGROUNDUP(it->next->start + it->next->length);
+    if(available_space >= true_length) {
       vma->length = length;
       release(&vma->lock);
 
@@ -178,7 +182,7 @@ sys_mmap(void) {
       vma->offset = offset;
       vma->permission = prot;
       vma->flags = flags;
-      vma->start = (it->start - length);
+      vma->start = PGROUNDDOWN(it->start) - true_length + (offset-true_offset);
       vma->next = it->next;
       filedup(vma->file);
 
@@ -188,7 +192,7 @@ sys_mmap(void) {
     it = it->next;
   }
   release(&vma->lock);
-  vma_free(vma, 0);
+  vma_free(vma);
   return -1;
 }
 
@@ -202,29 +206,26 @@ sys_munmap(void) {
   if(argaddr(1, &length) < 0) return -1;
 
   struct vma *it = &p->vma_start;
-  struct vma *prev = 0, *next = 0;
+  struct vma *prev = 0;
 
   for(; it->next != 0; prev = it, it = it->next)
     if(it->start <= addr && it->start + it->length >= addr + length) {
       // found VMA
       if(it->start == addr && it->length == length) {
-        next = it->next;
-        vma_free(it, prev);
-        prev->next = next;
+        prev->next = it->next;
+        vma_free(it);
         return 0;
       }
 
-      vma_free_mem(it, prev, addr, length);
-
       if(it->start == addr) { 
-        acquire(&it->lock);
+        if(PGROUNDDOWN(length) != length) return -1;
+        vma_free_mem(it, addr, length);
         it->start = addr + length;
+        it->offset += length;
         it->length -= length;
-        release(&it->lock);
       } else if(it->start + it->length == addr + length) {
-        acquire(&it->lock);
+        vma_free_mem(it, addr, length);
         it->length -= length;
-        release(&it->lock);
       } else {
         printf("Hole in vma not supported. Range: %p - %p", addr, addr + length);
         return -1;

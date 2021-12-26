@@ -15,21 +15,10 @@ struct vma *vma_alloc() {
   panic("Out of VMAs");
 }
 
-void vma_free_mem(struct vma *vma, struct vma *prev, uint64 addr, uint64 length) {
+void vma_free_mem(struct vma *vma,uint64 addr, uint64 length) {
   struct file *f = vma->file;
   struct proc *p = myproc();
   int write = (vma->flags & MAP_SHARED);
-
-  // Check if I must unmap first and last page
-  int free_start = (!prev || 
-                (PGROUNDDOWN(prev->start + prev->length) != prev->start + prev->length &&
-                 PGROUNDDOWN(prev->start + prev->length) != PGROUNDDOWN(vma->start)));
-
-  int free_end = (!vma->next || 
-              (PGROUNDDOWN(vma->start + vma->length) != vma->start + vma->length &&
-                PGROUNDDOWN(vma->start + vma->length) != PGROUNDDOWN(vma->next->start)));
-
-
   uint64 pos, file_pos, start, end;
 
   for(pos = PGROUNDDOWN(addr); pos < addr + length; pos += PGSIZE) {
@@ -45,20 +34,17 @@ void vma_free_mem(struct vma *vma, struct vma *prev, uint64 addr, uint64 length)
         iunlock(f->ip);
         end_op();
       }
-      if(PGROUNDDOWN(addr) == PGROUNDDOWN(addr+length) && free_start && free_end)
-        uvmunmap(p->pagetable, pos, 1, 1);
-      else if((pos == PGROUNDDOWN(addr)          && free_start) || 
-              (pos == PGROUNDDOWN(addr + length) && free_end  ) ||
-              end - start == PGSIZE) {
-        uvmunmap(p->pagetable, pos, 1, 1);
-      }
+      if((start > pos && start > vma->start) ||
+         (end < pos+PGSIZE && end < vma->start + vma->length))
+        continue;
+      uvmunmap(p->pagetable, pos, 1, 1);
     }
   }
 }
 
-void vma_free(struct vma *vma, struct vma *prev) {
+void vma_free(struct vma *vma) {
   if(vma->file != 0) {
-    vma_free_mem(vma, prev, vma->start, vma->length);
+    vma_free_mem(vma, vma->start, vma->length);
     fileclose(vma->file);
   }
   vma->start = 0;

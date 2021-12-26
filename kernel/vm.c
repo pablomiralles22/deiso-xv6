@@ -291,18 +291,17 @@ uint64 lazyalloc(pagetable_t pagetable, uint64 va)
 
   memset(mem, 0, PGSIZE);
 
-
   if(vma != &p->vma_end) {
-    int file_off = va - vma->start + vma->offset;
-    uint64 mem_off = PGROUNDDOWN(va) >= vma->start ? 0
-                      : vma->start - PGROUNDDOWN(va);
+    int file_off = PGROUNDDOWN(va - vma->start + vma->offset);
+    uint64 remaining_length = vma->file->ip->size - file_off;
+    uint64 size = PGSIZE >= remaining_length ? remaining_length : PGSIZE;
+
     ilock(vma->file->ip);
-    readi(vma->file->ip, 0, (uint64) mem + mem_off, file_off, PGSIZE - mem_off); // TODO: assume file?
+    readi(vma->file->ip, 0, (uint64) mem, file_off, size); // TODO: assume file?
     iunlock(vma->file->ip);
     permissions = (vma->permission << 1)|PTE_U|PTE_X;
   } else permissions = PTE_W|PTE_X|PTE_R|PTE_U;
 
-  // TODO : permisos para ficheros
   if(mappages(pagetable, PGROUNDDOWN(va), PGSIZE, (uint64)mem, permissions) != 0){
     kfree(mem);
     return 0;
