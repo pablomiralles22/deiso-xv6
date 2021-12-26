@@ -1,3 +1,5 @@
+#ifndef USER_H
+#define USER_H
 #include "../kernel/pstat.h"
 
 struct stat;
@@ -44,3 +46,4 @@ void free(void*);
 int atoi(const char*);
 int memcmp(const void *, const void *, uint);
 void *memcpy(void *, const void *, uint);
+#endif /* USER_H */

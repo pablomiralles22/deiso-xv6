@@ -1,3 +1,5 @@
+#ifndef PROC_H
+#define PROC_H
 // Saved registers for kernel context switches.
 struct context {
   uint64 ra;
@@ -113,3 +115,4 @@ extern struct proc proc[NPROC];
 
 extern uint total_tickets;
 extern struct spinlock tickets_lock;
+#endif /* PROC_H */
