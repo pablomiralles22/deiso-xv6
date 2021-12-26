@@ -107,7 +107,10 @@ sys_settickets(void)
   if(argint(0, &n) < 0 || n < MINTICKETS)
     return -1;
   acquire(&p->lock);
+  acquire(&tickets_lock);
+  total_tickets += n - p->tickets;
   p->tickets = n;
+  release(&tickets_lock);
   release(&p->lock);
   return 0;
 }

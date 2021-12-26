@@ -8,6 +8,9 @@
 
 static uint ticks_last_start;
 
+uint total_tickets = 0;
+struct spinlock tickets_lock;
+
 struct cpu cpus[NCPU];
 
 struct proc proc[NPROC];
@@ -165,9 +168,13 @@ freeproc(struct proc *p)
   p->chan = 0;
   p->killed = 0;
   p->xstate = 0;
-  p->tickets = 0;
   p->ticks = 0;
+  acquire(&tickets_lock);
+  if(p->state == RUNNING || p->state == RUNNABLE)
+    total_tickets -= p->tickets;
+  p->tickets = 0;
   p->state = UNUSED;
+  release(&tickets_lock);
 }
 
 // Create a user page table for a given process,
@@ -239,8 +246,6 @@ userinit(void)
   uvminit(p->pagetable, initcode, sizeof(initcode));
   p->sz = PGSIZE;
 
-  // Set number of tickets to minimum and ticks to 0
-  p->tickets = MINTICKETS;
   p->ticks = 0;
 
   // prepare for the very first "return" from kernel to user.
@@ -250,7 +255,11 @@ userinit(void)
   safestrcpy(p->name, "initcode", sizeof(p->name));
   p->cwd = namei("/");
 
+  acquire(&tickets_lock);
+  p->tickets = MINTICKETS;
+  total_tickets += p->tickets;
   p->state = RUNNABLE;
+  release(&tickets_lock);
 
   release(&p->lock);
 }
@@ -324,7 +333,10 @@ fork(void)
   release(&wait_lock);
 
   acquire(&np->lock);
+  acquire(&tickets_lock);
+  total_tickets += np->tickets;
   np->state = RUNNABLE;
+  release(&tickets_lock);
   release(&np->lock);
 
   return pid;
@@ -477,23 +489,26 @@ scheduler(void)
 {
   struct proc *p, *selected;
   struct cpu *c = mycpu();
-  int total_tickets, cum_tickets, target_tickets; // TODO long long?
+  int cum_tickets, target_tickets; // TODO long long?
   
   c->proc = 0;
   for(;;){
     // Avoid deadlock by ensuring that devices can interrupt.
     intr_on();
 
-    total_tickets = 0;
+    /** total_tickets = 0; */
     cum_tickets = 0;
     selected = 0;
 
-    for(p = proc; p < &proc[NPROC]; p++)
-      if(p->state == RUNNABLE)
-        total_tickets += p->tickets;
-    // TODO: pueden cambiar entre un bucle y el otro?
+    /** for(p = proc; p < &proc[NPROC]; p++) */
+    /**   if(p->state == RUNNABLE) */
+    /**     total_tickets += p->tickets; */
 
-    if(total_tickets == 0) continue;
+    acquire(&tickets_lock);
+    if(total_tickets == 0) {
+      release(&tickets_lock);
+      continue;
+    }
     target_tickets = next_random() % total_tickets;
 
     for(p = proc; p < &proc[NPROC]; p++)
@@ -503,6 +518,8 @@ scheduler(void)
         if(cum_tickets >= target_tickets)
           break;
       }
+    release(&tickets_lock);
+
     if(selected != 0) {
       acquire(&selected->lock);
       selected->state = RUNNING;
@@ -604,7 +621,10 @@ sleep(void *chan, struct spinlock *lk)
 
   // Go to sleep.
   p->chan = chan;
+  acquire(&tickets_lock);
   p->state = SLEEPING;
+  total_tickets -= p->tickets;
+  release(&tickets_lock);
 
   sched();
 
@@ -627,7 +647,10 @@ wakeup(void *chan)
     if(p != myproc()){
       acquire(&p->lock);
       if(p->state == SLEEPING && p->chan == chan) {
+        acquire(&tickets_lock);
         p->state = RUNNABLE;
+        total_tickets += p->tickets;
+        release(&tickets_lock);
       }
       release(&p->lock);
     }
@@ -648,7 +671,10 @@ kill(int pid)
       p->killed = 1;
       if(p->state == SLEEPING){
         // Wake process from sleep().
+        acquire(&tickets_lock);
         p->state = RUNNABLE;
+        total_tickets += p->tickets;
+        release(&tickets_lock);
       }
       release(&p->lock);
       return 0;
