@@ -255,8 +255,9 @@ userinit(void)
   safestrcpy(p->name, "initcode", sizeof(p->name));
   p->cwd = namei("/");
 
-  acquire(&tickets_lock);
   p->tickets = MINTICKETS;
+
+  acquire(&tickets_lock);
   total_tickets += p->tickets;
   p->state = RUNNABLE;
   release(&tickets_lock);
@@ -500,20 +501,15 @@ scheduler(void)
     // Avoid deadlock by ensuring that devices can interrupt.
     intr_on();
 
-    /** total_tickets = 0; */
     cum_tickets = 0;
     selected = 0;
-
-    /** for(p = proc; p < &proc[NPROC]; p++) */
-    /**   if(p->state == RUNNABLE) */
-    /**     total_tickets += p->tickets; */
 
     acquire(&tickets_lock);
     if(total_tickets == 0) {
       release(&tickets_lock);
       continue;
     }
-    target_tickets = next_random() % total_tickets;
+    target_tickets = (next_random() % total_tickets) + MINTICKETS;
 
     for(p = proc; p < &proc[NPROC]; p++)
       if(p->state == RUNNABLE) {
@@ -522,10 +518,11 @@ scheduler(void)
         if(cum_tickets >= target_tickets)
           break;
       }
-    release(&tickets_lock);
 
     if(selected != 0) {
       acquire(&selected->lock);
+      release(&tickets_lock);
+      /** printf("CPU assigned to %d\n", selected->pid); */
       selected->state = RUNNING;
       c->proc = selected;
       swtch(&c->context, &selected->context);
@@ -535,7 +532,7 @@ scheduler(void)
       acquire(&tickslock);
       ticks_last_start = ticks;
       release(&tickslock);
-    }
+    } else release(&tickets_lock);
   }
 }
 
@@ -580,7 +577,11 @@ yield(void)
 {
   struct proc *p = myproc();
   acquire(&p->lock);
+  acquire(&tickets_lock);
+  if(p->state != RUNNABLE && p->state != RUNNING)
+    total_tickets += p->tickets;
   p->state = RUNNABLE;
+  release(&tickets_lock);
   sched();
   release(&p->lock);
 }
@@ -626,8 +627,9 @@ sleep(void *chan, struct spinlock *lk)
   // Go to sleep.
   p->chan = chan;
   acquire(&tickets_lock);
+  if(p->state == RUNNING || p->state == RUNNABLE)
+    total_tickets -= p->tickets;
   p->state = SLEEPING;
-  total_tickets -= p->tickets;
   release(&tickets_lock);
 
   sched();
