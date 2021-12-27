@@ -331,7 +331,6 @@ fork(void)
 
   // copy saved user registers.
   *(np->trapframe) = *(p->trapframe);
-
   // Cause fork to return 0 in the child.
   np->trapframe->a0 = 0;
 
@@ -362,6 +361,7 @@ fork(void)
 
   struct vma *it1 = &p->vma_start,
              *it2 = &np->vma_start;
+  /** struct vma *it2 = &np->vma_start; */
 
   while(it1->next != &p->vma_end) {
     it2->next = vma_alloc();
@@ -370,7 +370,15 @@ fork(void)
     vma_copy(it2, it1);
     release(&it2->lock);
     filedup(it2->file);
-    uvmcopy_offseted(p->pagetable, np->pagetable, it1->start, it1->length);
+    if(uvmcopy_offseted(p->pagetable, np->pagetable, it1->start, it1->length) < 0){
+      for(struct vma *it = &np->vma_start; it != it2; it = it->next)
+        vma_free(it);
+      it2->file = 0;
+      vma_free(it2);
+      freeproc(np);
+      release(&np->lock);
+      return -1;
+    }
   }
   it2->next = &np->vma_end; // no need for lock
   release(&np->lock);
@@ -731,13 +739,13 @@ return -1;
 int
 either_copyout(int user_dst, uint64 dst, void *src, uint64 len)
 {
-struct proc *p = myproc();
-if(user_dst){
-  return copyout(p->pagetable, dst, src, len);
-} else {
-  memmove((char *)dst, src, len);
-  return 0;
-}
+  struct proc *p = myproc();
+  if(user_dst){
+    return copyout(p->pagetable, dst, src, len);
+  } else {
+    memmove((char *)dst, src, len);
+    return 0;
+  }
 }
 
 // Copy from either a user address, or kernel address,
@@ -746,13 +754,13 @@ if(user_dst){
 int
 either_copyin(void *dst, int user_src, uint64 src, uint64 len)
 {
-struct proc *p = myproc();
-if(user_src){
-  return copyin(p->pagetable, dst, src, len);
-} else {
-  memmove(dst, (char*)src, len);
-  return 0;
-}
+  struct proc *p = myproc();
+  if(user_src){
+    return copyin(p->pagetable, dst, src, len);
+  } else {
+    memmove(dst, (char*)src, len);
+    return 0;
+  }
 }
 
 // Print a process listing to console.  For debugging.

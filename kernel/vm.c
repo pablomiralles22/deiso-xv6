@@ -354,7 +354,7 @@ uvmcopy_offseted(pagetable_t old, pagetable_t new, uint64 start, uint64 sz)
   uint flags;
   char *mem;
 
-  for(i = PGROUNDDOWN(start); i < sz; i += PGSIZE){
+  for(i = PGROUNDDOWN(start); i < sz + PGROUNDDOWN(start); i += PGSIZE){
     pte = walk(old, i, 0);
     if((pte > 0) && (*pte & PTE_V)){
       pa = PTE2PA(*pte);
@@ -371,7 +371,7 @@ uvmcopy_offseted(pagetable_t old, pagetable_t new, uint64 start, uint64 sz)
   return 0;
 
  err:
-  uvmunmap(new, 0, i / PGSIZE, 1);
+  uvmunmap(new, PGROUNDDOWN(start), (i-PGROUNDDOWN(start)) / PGSIZE, 1);
   return -1;
 }
 
