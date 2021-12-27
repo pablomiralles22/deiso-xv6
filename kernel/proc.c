@@ -260,8 +260,9 @@ userinit(void)
   safestrcpy(p->name, "initcode", sizeof(p->name));
   p->cwd = namei("/");
 
-  acquire(&tickets_lock);
   p->tickets = MINTICKETS;
+
+  acquire(&tickets_lock);
   total_tickets += p->tickets;
   p->state = RUNNABLE;
   release(&tickets_lock);
@@ -537,53 +538,50 @@ return lcg_parkmiller(&random_seed);
 void
 scheduler(void)
 {
-struct proc *p, *selected;
-struct cpu *c = mycpu();
-int cum_tickets, target_tickets; // TODO long long?
+  struct proc *p, *selected;
+  struct cpu *c = mycpu();
+  int cum_tickets, target_tickets; // TODO long long?
 
-c->proc = 0;
-for(;;){
-  // Avoid deadlock by ensuring that devices can interrupt.
-  intr_on();
+  c->proc = 0;
+  for(;;){
+    // Avoid deadlock by ensuring that devices can interrupt.
+    intr_on();
 
-  /** total_tickets = 0; */
-  cum_tickets = 0;
-  selected = 0;
+    cum_tickets = 0;
+    selected = 0;
 
-  /** for(p = proc; p < &proc[NPROC]; p++) */
-  /**   if(p->state == RUNNABLE) */
-  /**     total_tickets += p->tickets; */
-
-  acquire(&tickets_lock);
-  if(total_tickets == 0) {
-    release(&tickets_lock);
-    continue;
-  }
-  target_tickets = next_random() % total_tickets;
-
-  for(p = proc; p < &proc[NPROC]; p++)
-    if(p->state == RUNNABLE) {
-      cum_tickets += p->tickets;
-      selected = p;
-      if(cum_tickets >= target_tickets)
-        break;
+    acquire(&tickets_lock);
+    if(total_tickets == 0) {
+      release(&tickets_lock);
+      continue;
     }
-  release(&tickets_lock);
+    target_tickets = (next_random() % total_tickets) + MINTICKETS;
 
-  if(selected != 0) {
-    acquire(&selected->lock);
-    selected->state = RUNNING;
-    c->proc = selected;
-    swtch(&c->context, &selected->context);
-    c->proc = 0;
-    release(&selected->lock);
-    // Read ticks and write in global variable
-    acquire(&tickslock);
-    ticks_last_start = ticks;
-    release(&tickslock);
+    for(p = proc; p < &proc[NPROC]; p++)
+      if(p->state == RUNNABLE) {
+        cum_tickets += p->tickets;
+        selected = p;
+        if(cum_tickets >= target_tickets)
+          break;
+      }
+
+    if(selected != 0) {
+      acquire(&selected->lock);
+      release(&tickets_lock);
+      /** printf("CPU assigned to %d\n", selected->pid); */
+      selected->state = RUNNING;
+      c->proc = selected;
+      swtch(&c->context, &selected->context);
+      c->proc = 0;
+      release(&selected->lock);
+      // Read ticks and write in global variable
+      acquire(&tickslock);
+      ticks_last_start = ticks;
+      release(&tickslock);
+    } else release(&tickets_lock);
   }
 }
-}
+
 
 // Switch to scheduler.  Must hold only p->lock
 // and have changed proc->state. Saves and restores
@@ -623,11 +621,15 @@ mycpu()->intena = intena;
 void
 yield(void)
 {
-struct proc *p = myproc();
-acquire(&p->lock);
-p->state = RUNNABLE;
-sched();
-release(&p->lock);
+  struct proc *p = myproc();
+  acquire(&p->lock);
+  acquire(&tickets_lock);
+  if(p->state != RUNNABLE && p->state != RUNNING)
+    total_tickets += p->tickets;
+  p->state = RUNNABLE;
+  release(&tickets_lock);
+  sched();
+  release(&p->lock);
 }
 
 // A fork child's very first scheduling by scheduler()
@@ -656,33 +658,34 @@ usertrapret();
 void
 sleep(void *chan, struct spinlock *lk)
 {
-struct proc *p = myproc();
+  struct proc *p = myproc();
+  
+  // Must acquire p->lock in order to
+  // change p->state and then call sched.
+  // Once we hold p->lock, we can be
+  // guaranteed that we won't miss any wakeup
+  // (wakeup locks p->lock),
+  // so it's okay to release lk.
 
-// Must acquire p->lock in order to
-// change p->state and then call sched.
-// Once we hold p->lock, we can be
-// guaranteed that we won't miss any wakeup
-// (wakeup locks p->lock),
-// so it's okay to release lk.
+  acquire(&p->lock);  //DOC: sleeplock1
+  release(lk);
 
-acquire(&p->lock);  //DOC: sleeplock1
-release(lk);
+  // Go to sleep.
+  p->chan = chan;
+  acquire(&tickets_lock);
+  if(p->state == RUNNING || p->state == RUNNABLE)
+    total_tickets -= p->tickets;
+  p->state = SLEEPING;
+  release(&tickets_lock);
 
-// Go to sleep.
-p->chan = chan;
-acquire(&tickets_lock);
-p->state = SLEEPING;
-total_tickets -= p->tickets;
-release(&tickets_lock);
+  sched();
 
-sched();
+  // Tidy up.
+  p->chan = 0;
 
-// Tidy up.
-p->chan = 0;
-
-// Reacquire original lock.
-release(&p->lock);
-acquire(lk);
+  // Reacquire original lock.
+  release(&p->lock);
+  acquire(lk);
 }
 
 // Wake up all processes sleeping on chan.
