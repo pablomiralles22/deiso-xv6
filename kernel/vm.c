@@ -5,6 +5,8 @@
 #include "riscv.h"
 #include "defs.h"
 #include "fs.h"
+#include "spinlock.h"
+#include "proc.h"
 
 /*
  * the kernel's page table.
@@ -97,8 +99,7 @@ walk(pagetable_t pagetable, uint64 va, int alloc)
   return &pagetable[PX(0, va)];
 }
 
-// Look up a virtual address, return the physical address,
-// or 0 if not mapped.
+// Look up a virtual address, allocate if not mapped
 // Can only be used to look up user pages.
 uint64
 walkaddr(pagetable_t pagetable, uint64 va)
@@ -110,14 +111,18 @@ walkaddr(pagetable_t pagetable, uint64 va)
     return 0;
 
   pte = walk(pagetable, va, 0);
-  if(pte == 0)
-    return 0;
-  if((*pte & PTE_V) == 0)
-    return 0;
-  if((*pte & PTE_U) == 0)
-    return 0;
-  pa = PTE2PA(*pte);
+  if(pte == 0 || (*pte & PTE_V) == 0 || (*pte & PTE_U) == 0){
+    uint64 lazypa = lazyalloc(pagetable, va);
+    pa = (lazypa <= 0) ? 0 : lazypa;
+  } else
+    pa = PTE2PA(*pte);
   return pa;
+}
+
+// returns 1 if page is mapped, 0 otherwise
+int is_page_mapped(pagetable_t pagetable, uint64 va) {
+  pte_t *pte = walk(pagetable, va, 0);
+  return !(pte == 0 || (*pte & PTE_V) == 0 || (*pte & PTE_U) == 0);
 }
 
 // add a mapping to the kernel page table.
@@ -148,8 +153,8 @@ mappages(pagetable_t pagetable, uint64 va, uint64 size, uint64 pa, int perm)
   for(;;){
     if((pte = walk(pagetable, a, 1)) == 0)
       return -1;
-    if(*pte & PTE_V)
-      panic("mappages: remap");
+    // if(*pte & PTE_V)
+    //   panic("mappages: remap"); // TODO: comment?
     *pte = PA2PTE(pa) | perm | PTE_V;
     if(a == last)
       break;
@@ -173,9 +178,9 @@ uvmunmap(pagetable_t pagetable, uint64 va, uint64 npages, int do_free)
 
   for(a = va; a < va + npages*PGSIZE; a += PGSIZE){
     if((pte = walk(pagetable, a, 0)) == 0)
-      panic("uvmunmap: walk");
+      continue;
     if((*pte & PTE_V) == 0)
-      panic("uvmunmap: not mapped");
+      continue;
     if(PTE_FLAGS(*pte) == PTE_V)
       panic("uvmunmap: not a leaf");
     if(do_free){
@@ -261,6 +266,50 @@ uvmdealloc(pagetable_t pagetable, uint64 oldsz, uint64 newsz)
   return newsz;
 }
 
+// Lazy allocation memory for proc p.
+// Returns address of allocated memory or 0 if failed allocating.
+uint64 lazyalloc(pagetable_t pagetable, uint64 va) 
+{
+  char *mem;
+  struct proc *p = myproc();
+  struct vma *vma;
+  int permissions;
+
+  // Look for the VMA which has va
+
+  for(vma = &p->vma_start; vma->next != 0; vma = vma->next) {
+    if(vma->start <= va && va < vma->start + vma->length)
+      break;
+  }
+
+  if(vma == &p->vma_end && (va >= p->sz || va < PGROUNDUP(p->trapframe->sp)))
+    return 0;
+  
+  mem = kalloc();
+  if(mem == 0)
+    return 0;
+
+  memset(mem, 0, PGSIZE);
+
+  if(vma != &p->vma_end) {
+    int file_off = PGROUNDDOWN(va - vma->start + vma->offset);
+    uint64 remaining_length = vma->file->ip->size - file_off;
+    uint64 size = PGSIZE >= remaining_length ? remaining_length : PGSIZE;
+
+    ilock(vma->file->ip);
+    readi(vma->file->ip, 0, (uint64) mem, file_off, size); // TODO: assume file?
+    iunlock(vma->file->ip);
+    permissions = (vma->permission << 1)|PTE_U|PTE_X;
+  } else permissions = PTE_W|PTE_X|PTE_R|PTE_U;
+
+  if(mappages(pagetable, PGROUNDDOWN(va), PGSIZE, (uint64)mem, permissions) != 0){
+    kfree(mem);
+    return 0;
+  }
+
+  return (uint64)mem;
+}
+
 // Recursively free page-table pages.
 // All leaf mappings must already have been removed.
 void
@@ -298,33 +347,38 @@ uvmfree(pagetable_t pagetable, uint64 sz)
 // returns 0 on success, -1 on failure.
 // frees any allocated pages on failure.
 int
-uvmcopy(pagetable_t old, pagetable_t new, uint64 sz)
+uvmcopy_offseted(pagetable_t old, pagetable_t new, uint64 start, uint64 sz)
 {
   pte_t *pte;
   uint64 pa, i;
   uint flags;
   char *mem;
 
-  for(i = 0; i < sz; i += PGSIZE){
-    if((pte = walk(old, i, 0)) == 0)
-      panic("uvmcopy: pte should exist");
-    if((*pte & PTE_V) == 0)
-      panic("uvmcopy: page not present");
-    pa = PTE2PA(*pte);
-    flags = PTE_FLAGS(*pte);
-    if((mem = kalloc()) == 0)
-      goto err;
-    memmove(mem, (char*)pa, PGSIZE);
-    if(mappages(new, i, PGSIZE, (uint64)mem, flags) != 0){
-      kfree(mem);
-      goto err;
+  for(i = PGROUNDDOWN(start); i < sz + PGROUNDDOWN(start); i += PGSIZE){
+    pte = walk(old, i, 0);
+    if((pte > 0) && (*pte & PTE_V)){
+      pa = PTE2PA(*pte);
+      flags = PTE_FLAGS(*pte);
+      if((mem = kalloc()) == 0)
+        goto err;
+      memmove(mem, (char*)pa, PGSIZE);
+      if(mappages(new, i, PGSIZE, (uint64)mem, flags) != 0){
+        kfree(mem);
+        goto err;
+      }
     }
   }
   return 0;
 
  err:
-  uvmunmap(new, 0, i / PGSIZE, 1);
+  uvmunmap(new, PGROUNDDOWN(start), (i-PGROUNDDOWN(start)) / PGSIZE, 1);
   return -1;
+}
+
+int
+uvmcopy(pagetable_t old, pagetable_t new, uint64 sz)
+{
+  return uvmcopy_offseted(old, new, 0, sz);
 }
 
 // mark a PTE invalid for user access.

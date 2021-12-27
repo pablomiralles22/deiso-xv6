@@ -3,6 +3,7 @@
 #include "memlayout.h"
 #include "riscv.h"
 #include "spinlock.h"
+#include "vma.h"
 #include "proc.h"
 #include "defs.h"
 
@@ -169,6 +170,10 @@ freeproc(struct proc *p)
   p->killed = 0;
   p->xstate = 0;
   p->ticks = 0;
+
+  p->vma_end.length = 0;
+  p->vma_start.next = &p->vma_end;
+
   acquire(&tickets_lock);
   if(p->state == RUNNING || p->state == RUNNABLE)
     total_tickets -= p->tickets;
@@ -262,6 +267,20 @@ userinit(void)
   p->state = RUNNABLE;
   release(&tickets_lock);
 
+  p->vma_start.file = 0;
+  p->vma_start.length = 2 * PGSIZE;
+  p->vma_start.start = MAXVA - 2 * PGSIZE;
+  p->vma_start.permission = 0;
+  p->vma_start.offset = 0;
+  p->vma_start.next = &p->vma_end;
+
+  p->vma_end.file = 0;
+  p->vma_end.length = PGSIZE;
+  p->vma_end.start = 0;
+  p->vma_end.permission = 0;
+  p->vma_end.offset = 0;
+  p->vma_end.next = 0;
+
   release(&p->lock);
 }
 
@@ -313,7 +332,6 @@ fork(void)
 
   // copy saved user registers.
   *(np->trapframe) = *(p->trapframe);
-
   // Cause fork to return 0 in the child.
   np->trapframe->a0 = 0;
 
@@ -338,6 +356,32 @@ fork(void)
   total_tickets += np->tickets;
   np->state = RUNNABLE;
   release(&tickets_lock);
+
+  vma_copy(&np->vma_start, &p->vma_start);
+  vma_copy(&np->vma_end, &p->vma_end);
+
+  struct vma *it1 = &p->vma_start,
+             *it2 = &np->vma_start;
+  /** struct vma *it2 = &np->vma_start; */
+
+  while(it1->next != &p->vma_end) {
+    it2->next = vma_alloc();
+    it1 = it1->next;
+    it2 = it2->next;
+    vma_copy(it2, it1);
+    release(&it2->lock);
+    filedup(it2->file);
+    if(uvmcopy_offseted(p->pagetable, np->pagetable, it1->start, it1->length) < 0){
+      for(struct vma *it = &np->vma_start; it != it2; it = it->next)
+        vma_free(it);
+      it2->file = 0;
+      vma_free(it2);
+      freeproc(np);
+      release(&np->lock);
+      return -1;
+    }
+  }
+  it2->next = &np->vma_end; // no need for lock
   release(&np->lock);
 
   return pid;
@@ -378,6 +422,9 @@ exit(int status)
     }
   }
 
+  for(struct vma *it = p->vma_start.next, *next; (next = it->next) != 0; it = next)
+    vma_free(it);
+
   begin_op();
   iput(p->cwd);
   end_op();
@@ -393,7 +440,6 @@ exit(int status)
   
   acquire(&p->lock);
 
-  p->xstate = status;
   acquire(&tickets_lock);
   if(p->state == RUNNING || p->state == RUNNABLE)
     total_tickets -= p->tickets;
@@ -436,50 +482,50 @@ wait(uint64 addr)
             release(&wait_lock);
             return -1;
           }
-          freeproc(np);
-          release(&np->lock);
-          release(&wait_lock);
-          return pid;
-        }
+        freeproc(np);
         release(&np->lock);
+        release(&wait_lock);
+        return pid;
       }
+      release(&np->lock);
     }
-
-    // No point waiting if we don't have any children.
-    if(!havekids || p->killed){
-      release(&wait_lock);
-      return -1;
-    }
-    
-    // Wait for a child to exit.
-    sleep(p, &wait_lock);  //DOC: wait-sleep
   }
+
+  // No point waiting if we don't have any children.
+  if(!havekids || p->killed){
+    release(&wait_lock);
+    return -1;
+  }
+  
+  // Wait for a child to exit.
+  sleep(p, &wait_lock);  //DOC: wait-sleep
+}
 }
 
 /*
- * RANDOM NUMBER GENERATOR
- * https://en.wikipedia.org/wiki/Lehmer_random_number_generator
- * https://www.cs.virginia.edu/~cr4bd/4414/F2019/files/lcg_parkmiller_c.txt
- */
+* RANDOM NUMBER GENERATOR
+* https://en.wikipedia.org/wiki/Lehmer_random_number_generator
+* https://www.cs.virginia.edu/~cr4bd/4414/F2019/files/lcg_parkmiller_c.txt
+*/
 static unsigned random_seed = 1;
 
 #define RANDOM_MAX ((1u << 63u) - 1u)
 unsigned lcg_parkmiller(unsigned *state)
 {
-  const unsigned N = 0x7fffffff;
-  const unsigned G = 48271u;
+const unsigned N = 0x7fffffff;
+const unsigned G = 48271u;
 
-  unsigned div = *state / (N / G);  /* max : 2,147,483,646 / 44,488 = 48,271 */
-  unsigned rem = *state % (N / G);  /* max : 2,147,483,646 % 44,488 = 44,487 */
+unsigned div = *state / (N / G);  /* max : 2,147,483,646 / 44,488 = 48,271 */
+unsigned rem = *state % (N / G);  /* max : 2,147,483,646 % 44,488 = 44,487 */
 
-  unsigned a = rem * G;        /* max : 44,487 * 48,271 = 2,147,431,977 */
-  unsigned b = div * (N % G);  /* max : 48,271 * 3,399 = 164,073,129 */
+unsigned a = rem * G;        /* max : 44,487 * 48,271 = 2,147,431,977 */
+unsigned b = div * (N % G);  /* max : 48,271 * 3,399 = 164,073,129 */
 
-  return *state = (a > b) ? (a - b) : (a + (N - b));
+return *state = (a > b) ? (a - b) : (a + (N - b));
 }
 
 unsigned next_random() {
-  return lcg_parkmiller(&random_seed);
+return lcg_parkmiller(&random_seed);
 }
 
 // Per-CPU process scheduler.
@@ -495,7 +541,7 @@ scheduler(void)
   struct proc *p, *selected;
   struct cpu *c = mycpu();
   int cum_tickets, target_tickets; // TODO long long?
-  
+
   c->proc = 0;
   for(;;){
     // Avoid deadlock by ensuring that devices can interrupt.
@@ -536,6 +582,7 @@ scheduler(void)
   }
 }
 
+
 // Switch to scheduler.  Must hold only p->lock
 // and have changed proc->state. Saves and restores
 // intena because intena is a property of this
@@ -546,29 +593,28 @@ scheduler(void)
 void
 sched(void)
 {
-  int intena;
-  struct proc *p = myproc();
+int intena;
+struct proc *p = myproc();
 
-  if(!holding(&p->lock))
-    panic("sched p->lock");
-  if(mycpu()->noff != 1)
-    panic("sched locks");
-  if(p->state == RUNNING)
-    panic("sched running");
-  if(intr_get())
-    panic("sched interruptible");
+if(!holding(&p->lock))
+  panic("sched p->lock");
+if(mycpu()->noff != 1)
+  panic("sched locks");
+if(p->state == RUNNING)
+  panic("sched running");
+if(intr_get())
+  panic("sched interruptible");
 
-  // Add difference of ticks to process' ticks counter
-  acquire(&tickslock);
-  /* printf("%d %d %d\n", p->pid, ticks, ticks_last_start); */
-  p->ticks += ticks - ticks_last_start;
-  release(&tickslock);
+// Add difference of ticks to process' ticks counter
+acquire(&tickslock);
+p->ticks += ticks - ticks_last_start;
+release(&tickslock);
 
-  intena = mycpu()->intena;
-  swtch(&p->context, &mycpu()->context);
+intena = mycpu()->intena;
+swtch(&p->context, &mycpu()->context);
 
-  
-  mycpu()->intena = intena;
+
+mycpu()->intena = intena;
 }
 
 // Give up the CPU for one scheduling round.
@@ -591,20 +637,20 @@ yield(void)
 void
 forkret(void)
 {
-  static int first = 1;
+static int first = 1;
 
-  // Still holding p->lock from scheduler.
-  release(&myproc()->lock);
+// Still holding p->lock from scheduler.
+release(&myproc()->lock);
 
-  if (first) {
-    // File system initialization must be run in the context of a
-    // regular process (e.g., because it calls sleep), and thus cannot
-    // be run from main().
-    first = 0;
-    fsinit(ROOTDEV);
-  }
+if (first) {
+  // File system initialization must be run in the context of a
+  // regular process (e.g., because it calls sleep), and thus cannot
+  // be run from main().
+  first = 0;
+  fsinit(ROOTDEV);
+}
 
-  usertrapret();
+usertrapret();
 }
 
 // Atomically release lock and sleep on chan.
@@ -647,20 +693,20 @@ sleep(void *chan, struct spinlock *lk)
 void
 wakeup(void *chan)
 {
-  struct proc *p;
+struct proc *p;
 
-  for(p = proc; p < &proc[NPROC]; p++) {
-    if(p != myproc()){
-      acquire(&p->lock);
-      if(p->state == SLEEPING && p->chan == chan) {
-        acquire(&tickets_lock);
-        p->state = RUNNABLE;
-        total_tickets += p->tickets;
-        release(&tickets_lock);
-      }
-      release(&p->lock);
+for(p = proc; p < &proc[NPROC]; p++) {
+  if(p != myproc()){
+    acquire(&p->lock);
+    if(p->state == SLEEPING && p->chan == chan) {
+      acquire(&tickets_lock);
+      p->state = RUNNABLE;
+      total_tickets += p->tickets;
+      release(&tickets_lock);
     }
+    release(&p->lock);
   }
+}
 }
 
 // Kill the process with the given pid.
@@ -669,25 +715,25 @@ wakeup(void *chan)
 int
 kill(int pid)
 {
-  struct proc *p;
+struct proc *p;
 
-  for(p = proc; p < &proc[NPROC]; p++){
-    acquire(&p->lock);
-    if(p->pid == pid){
-      p->killed = 1;
-      if(p->state == SLEEPING){
-        // Wake process from sleep().
-        acquire(&tickets_lock);
-        p->state = RUNNABLE;
-        total_tickets += p->tickets;
-        release(&tickets_lock);
-      }
-      release(&p->lock);
-      return 0;
+for(p = proc; p < &proc[NPROC]; p++){
+  acquire(&p->lock);
+  if(p->pid == pid){
+    p->killed = 1;
+    if(p->state == SLEEPING){
+      // Wake process from sleep().
+      acquire(&tickets_lock);
+      p->state = RUNNABLE;
+      total_tickets += p->tickets;
+      release(&tickets_lock);
     }
     release(&p->lock);
+    return 0;
   }
-  return -1;
+  release(&p->lock);
+}
+return -1;
 }
 
 // Copy to either a user address, or kernel address,
@@ -726,12 +772,12 @@ either_copyin(void *dst, int user_src, uint64 src, uint64 len)
 void
 procdump(void)
 {
-  static char *states[] = {
-  [UNUSED]    "unused",
-  [SLEEPING]  "sleep ",
-  [RUNNABLE]  "runble",
-  [RUNNING]   "run   ",
-  [ZOMBIE]    "zombie"
+static char *states[] = {
+[UNUSED]    "unused",
+[SLEEPING]  "sleep ",
+[RUNNABLE]  "runble",
+[RUNNING]   "run   ",
+[ZOMBIE]    "zombie"
   };
   struct proc *p;
   char *state;

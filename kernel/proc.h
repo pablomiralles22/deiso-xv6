@@ -1,5 +1,9 @@
 #ifndef PROC_H
 #define PROC_H
+#include "vma.h"
+#include "param.h"
+#include "riscv.h"
+
 // Saved registers for kernel context switches.
 struct context {
   uint64 ra;
@@ -109,6 +113,8 @@ struct proc {
   struct file *ofile[NOFILE];  // Open files
   struct inode *cwd;           // Current directory
   char name[16];               // Process name (debugging)
+  struct vma vma_start;        // Dummy VMA for MAXVA - 2 pages
+  struct vma vma_end;          // Dummy VMA from Heap downwards
 };
 
 extern struct proc proc[NPROC];

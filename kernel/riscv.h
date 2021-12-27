@@ -1,5 +1,7 @@
 #ifndef RISCV_H
 #define RISCV_H
+#include "types.h"
+
 // which hart (core) is this?
 static inline uint64
 r_mhartid()

@@ -1,5 +1,6 @@
 #ifndef ELF_H
 #define ELF_H
+#include "types.h"
 // Format of an ELF executable file
 
 #define ELF_MAGIC 0x464C457FU  // "\x7FELF" in little endian

@@ -1,5 +1,6 @@
 #ifndef VIRTIO_H
 #define VIRTIO_H
+#include "types.h"
 //
 // virtio device definitions.
 // for both the mmio interface, and virtio descriptors.

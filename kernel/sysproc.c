@@ -42,14 +42,16 @@ sys_wait(void)
 uint64
 sys_sbrk(void)
 {
-  int addr;
-  int n;
+  int n, addr;
+  struct proc *p = myproc();
 
   if(argint(0, &n) < 0)
     return -1;
-  addr = myproc()->sz;
-  if(growproc(n) < 0)
-    return -1;
+  addr = p->sz;
+  if((addr + n) >= MAXVA - 2*PGSIZE || (addr + n) < PGROUNDUP(p->trapframe->sp))
+    return addr;
+  p->sz = (n < 0) ? uvmdealloc(p->pagetable, addr, addr + n) : addr + n;
+  p->vma_end.length = p->sz;
   return addr;
 }
 
@@ -137,3 +139,99 @@ sys_getpinfo(void)
   return 0;
 }
 
+uint64
+sys_mmap(void) {
+  struct proc *p = myproc();
+  struct file *f;
+  uint64 addr;
+  size_t length, true_length;
+  int prot, flags, fd;
+  off_t offset, true_offset;
+
+  if(argaddr(0, &addr) < 0) return -1;
+  if(argaddr(1, &length) < 0) return -1;
+  if(argint(2, &prot) < 0) return -1;
+  if(argint(3, &flags) < 0) return -1;
+  if(argint(4, &fd) < 0) return -1;
+  if(argaddr(5, &offset) < 0) return -1;
+
+  f = p->ofile[fd];
+
+  if(f == 0) return -1;
+  if((prot & PROT_WRITE) && (flags & MAP_SHARED) && (!f->writable))
+    return -1;
+  if((prot & PROT_READ) && (!f->readable))
+    return -1;
+
+  true_offset = PGROUNDDOWN(offset);
+  true_length = PGROUNDUP(length + offset-true_offset);
+  /** if(PGROUNDDOWN(offset) != offset) return -1; */
+
+  struct vma *vma = vma_alloc();
+
+  struct vma *it = &p->vma_start;
+
+  while(it->next != 0) {
+    uint64 available_space = 
+      PGROUNDDOWN(it->start) - PGROUNDUP(it->next->start + it->next->length);
+    if(available_space >= true_length) {
+      vma->length = length;
+      release(&vma->lock);
+
+      vma->file = f;
+      vma->offset = offset;
+      vma->permission = prot;
+      vma->flags = flags;
+      vma->start = PGROUNDDOWN(it->start) - true_length + (offset-true_offset);
+      vma->next = it->next;
+      filedup(vma->file);
+
+      it->next = vma;
+      return vma->start;
+    }
+    it = it->next;
+  }
+  release(&vma->lock);
+  vma_free(vma);
+  return -1;
+}
+
+uint64
+sys_munmap(void) {
+  struct proc* p = myproc();
+  uint64 addr;
+  size_t length;
+
+  if(argaddr(0, &addr) < 0) return -1;
+  if(argaddr(1, &length) < 0) return -1;
+
+  struct vma *it = &p->vma_start;
+  struct vma *prev = 0;
+
+  for(; it->next != 0; prev = it, it = it->next)
+    if(it->start <= addr && it->start + it->length >= addr + length) {
+      // found VMA
+      if(it->start == addr && it->length == length) {
+        prev->next = it->next;
+        vma_free(it);
+        return 0;
+      }
+
+      if(it->start == addr) { 
+        if(PGROUNDDOWN(length) != length) return -1;
+        vma_free_mem(it, addr, length);
+        it->start = addr + length;
+        it->offset += length;
+        it->length -= length;
+      } else if(it->start + it->length == addr + length) {
+        vma_free_mem(it, addr, length);
+        it->length -= length;
+      } else {
+        printf("Hole in vma not supported. Range: %p - %p", addr, addr + length);
+        return -1;
+      }
+      return 0;
+    }
+  printf("VMA not found. Range: %p - %p", addr, addr + length);
+  return -1;
+}
