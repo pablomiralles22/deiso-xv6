@@ -43,17 +43,23 @@ sys_wait(void)
 uint64
 sys_sbrk(void)
 {
-  int n, addr;
   struct proc *p = myproc();
+  struct vma *heap = p->heap,
+             *prev_heap;
+  int n;
 
   if(argint(0, &n) < 0)
     return -1;
-  addr = p->sz;
-  if((addr + n) >= MAXVA - 2*PGSIZE || (addr + n) < PGROUNDUP(p->trapframe->sp))
-    return addr;
-  p->sz = (n < 0) ? uvmdealloc(p->pagetable, addr, addr + n) : addr + n;
-  p->vma_end.length = p->sz;
-  return addr;
+  if(heap->length < -n)
+    return heap->start + heap->length;
+  // check not overtaking next vma
+  for(prev_heap = &p->vma_start; prev_heap->next != heap; prev_heap = prev_heap->next);
+  if(heap->start + heap->length + n > prev_heap->start)
+    return heap->start + heap->length;
+
+  if(n < 0) vma_free_mem(heap, heap->start + heap->length + n, -n);
+  heap->length += n;
+  return heap->start + heap->length;
 }
 
 uint64
@@ -145,9 +151,9 @@ sys_mmap(void) {
   struct proc *p = myproc();
   struct file *f;
   uint64 addr;
-  size_t length, true_length;
+  size_t length;
   int prot, flags, fd;
-  off_t offset, true_offset;
+  off_t offset;
 
   if(argaddr(0, &addr) < 0) return -1;
   if(argaddr(1, &length) < 0) return -1;
@@ -164,20 +170,16 @@ sys_mmap(void) {
   if((prot & PROT_READ) && (!f->readable))
     return -1;
 
-  true_offset = PGROUNDDOWN(offset);
-  true_length = PGROUNDUP(length + offset-true_offset);
-  /** if(PGROUNDDOWN(offset) != offset) return -1; */
-
   struct vma *vma;
   struct vma *it = &p->vma_start;
 
   while(it->next != 0) {
     uint64 available_space = 
       PGROUNDDOWN(it->start) - PGROUNDUP(it->next->start + it->next->length);
-    if(available_space >= true_length) {
+    if(available_space >= PGROUNDUP(length)) {
       if((vma = vma_alloc()) == 0)
         return -1;
-      vma_init(vma, PGROUNDDOWN(it->start) - true_length + (offset-true_offset),
+      vma_init(vma, PGROUNDDOWN(it->start) - PGROUNDUP(length),
           length, f, offset, prot, flags, it->next);
       it->next = vma;
       return vma->start;

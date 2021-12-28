@@ -276,32 +276,28 @@ uint64 lazyalloc(pagetable_t pagetable, uint64 va)
   int permissions;
 
   // Look for the VMA which has va
-
-  for(vma = &p->vma_start; vma != 0; vma = vma->next) {
+  for(vma = &p->vma_start; vma != 0; vma = vma->next)
     if(vma->start <= va && va < vma->start + vma->length)
       break;
-  }
 
-  if(vma == 0)
-    return 0;
+  if(vma == 0) return 0;
 
   mem = kalloc();
-  if(mem == 0)
-    return 0;
+  if(mem == 0) return 0;
 
   memset(mem, 0, PGSIZE);
 
-  if(vma != 0) {
-    int file_off = PGROUNDDOWN(va - vma->start + vma->offset); // TODO: CHANGE
+  if(vma->file) {
+    int file_off = PGROUNDDOWN(va - vma->start) + vma->offset;
     uint64 remaining_length = vma->file->ip->size - file_off;
     uint64 size = PGSIZE >= remaining_length ? remaining_length : PGSIZE;
 
     ilock(vma->file->ip);
-    readi(vma->file->ip, 0, (uint64) mem, file_off, size); // TODO: assume file?
+    readi(vma->file->ip, 0, (uint64) mem, file_off, size);
     iunlock(vma->file->ip);
-    permissions = (vma->permission << 1)|PTE_U|PTE_X;
-  } else permissions = PTE_W|PTE_X|PTE_R|PTE_U;
+  }
 
+  permissions = (vma->permission << 1)|PTE_U|PTE_X;
   if(mappages(pagetable, PGROUNDDOWN(va), PGSIZE, (uint64)mem, permissions) != 0){
     kfree(mem);
     return 0;
