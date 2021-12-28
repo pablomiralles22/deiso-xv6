@@ -9,9 +9,10 @@ struct vma *vma_alloc() {
   struct vma* vma;
   for(vma = vma_list; vma < &vma_list[NVMA]; vma++) {
     acquire(&vma->lock);
-    if(vma->length == 0) return vma;
+    if(vma->used == 0) return vma;
     release(&vma->lock);
   }
+  return 0;
   panic("Out of VMAs");
 }
 
@@ -53,14 +54,16 @@ void vma_free(struct vma *vma) {
   vma->offset = 0;
   vma->permission = 0;
   vma->flags = 0;
+  vma->length = 0;
 
   acquire(&vma->lock);
-  vma->length = 0;
+  vma->used = 0;
   release(&vma->lock);
 }
 
 // needs a's lock to be taken
 void vma_copy(struct vma *a, struct vma *b) {
+  a->used = b->used;
   a->start = b->start;
   a->length = b->length;
   a->next = b->next;
@@ -69,3 +72,22 @@ void vma_copy(struct vma *a, struct vma *b) {
   a->permission = b->permission;
   a->flags = b->flags;
 }
+
+// call with vma->lock acquired
+void vma_init(struct vma *vma, uint64 start, uint64 length,
+              struct file *file, uint64 offset, int permission,
+              int flags, struct vma *next)
+{
+  vma->used = 1;
+  release(&vma->lock);
+  if(file) filedup(file);
+  vma->length = length;
+  vma->start = start;
+  vma->length = length;
+  vma->file = file;
+  vma->offset = offset;
+  vma->permission = permission;
+  vma->flags = flags;
+  vma->next = next;
+}
+

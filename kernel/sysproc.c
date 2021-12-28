@@ -7,6 +7,7 @@
 #include "spinlock.h"
 #include "proc.h"
 #include "pstat.h"
+#include "vma.h"
 
 uint64
 sys_exit(void)
@@ -68,76 +69,76 @@ sys_sleep(void)
   while(ticks - ticks0 < n){
     if(myproc()->killed){
       release(&tickslock);
-      return -1;
+        return -1;
+      }
+      sleep(&ticks, &tickslock);
     }
-    sleep(&ticks, &tickslock);
-  }
-  release(&tickslock);
-  return 0;
-}
-
-uint64
-sys_kill(void)
-{
-  int pid;
-
-  if(argint(0, &pid) < 0)
-    return -1;
-  return kill(pid);
-}
-
-// return how many clock tick interrupts have occurred
-// since start.
-uint64
-sys_uptime(void)
-{
-  uint xticks;
-
-  acquire(&tickslock);
-  xticks = ticks;
-  release(&tickslock);
-  return xticks;
-}
-
-// stablish the number of tickets of the caller process 
-uint64
-sys_settickets(void)
-{
-  int n;
-  struct proc* p = myproc();
-
-  if(argint(0, &n) < 0 || n < MINTICKETS)
-    return -1;
-  acquire(&p->lock);
-  acquire(&tickets_lock);
-  total_tickets += n - p->tickets;
-  p->tickets = n;
-  release(&tickets_lock);
-  release(&p->lock);
-  return 0;
-}
-
-uint64
-sys_getpinfo(void)
-{
-  uint64 addr;
-  struct pstat ps = { 0 };
-
-  if(argaddr(0, &addr) < 0)
-    return -1;
-
-  for(int i = 0; i < NPROC; ++i) {
-    /* if(proc[i].state != UNUSED) { */
-    ps.inuse[i]   = proc[i].state != UNUSED;
-    ps.pid[i]     = proc[i].pid;
-    ps.tickets[i] = proc[i].tickets;
-    ps.ticks[i]   = proc[i].ticks;
+    release(&tickslock);
+    return 0;
   }
 
-  if(copyout(myproc()->pagetable, addr, (char *) &ps, sizeof(struct pstat)) < 0)
-    return -1;
-  return 0;
-}
+  uint64
+  sys_kill(void)
+  {
+    int pid;
+
+    if(argint(0, &pid) < 0)
+      return -1;
+    return kill(pid);
+  }
+
+  // return how many clock tick interrupts have occurred
+  // since start.
+  uint64
+  sys_uptime(void)
+  {
+    uint xticks;
+
+    acquire(&tickslock);
+    xticks = ticks;
+    release(&tickslock);
+    return xticks;
+  }
+
+  // stablish the number of tickets of the caller process 
+  uint64
+  sys_settickets(void)
+  {
+    int n;
+    struct proc* p = myproc();
+
+    if(argint(0, &n) < 0 || n < MINTICKETS)
+      return -1;
+    acquire(&p->lock);
+    acquire(&tickets_lock);
+    total_tickets += n - p->tickets;
+    p->tickets = n;
+    release(&tickets_lock);
+    release(&p->lock);
+    return 0;
+  }
+
+  uint64
+  sys_getpinfo(void)
+  {
+    uint64 addr;
+    struct pstat ps = { 0 };
+
+    if(argaddr(0, &addr) < 0)
+      return -1;
+
+    for(int i = 0; i < NPROC; ++i) {
+      /* if(proc[i].state != UNUSED) { */
+      ps.inuse[i]   = proc[i].state != UNUSED;
+      ps.pid[i]     = proc[i].pid;
+      ps.tickets[i] = proc[i].tickets;
+      ps.ticks[i]   = proc[i].ticks;
+    }
+
+    if(copyout(myproc()->pagetable, addr, (char *) &ps, sizeof(struct pstat)) < 0)
+      return -1;
+    return 0;
+  }
 
 uint64
 sys_mmap(void) {
@@ -167,32 +168,22 @@ sys_mmap(void) {
   true_length = PGROUNDUP(length + offset-true_offset);
   /** if(PGROUNDDOWN(offset) != offset) return -1; */
 
-  struct vma *vma = vma_alloc();
-
+  struct vma *vma;
   struct vma *it = &p->vma_start;
 
   while(it->next != 0) {
     uint64 available_space = 
       PGROUNDDOWN(it->start) - PGROUNDUP(it->next->start + it->next->length);
     if(available_space >= true_length) {
-      vma->length = length;
-      release(&vma->lock);
-
-      vma->file = f;
-      vma->offset = offset;
-      vma->permission = prot;
-      vma->flags = flags;
-      vma->start = PGROUNDDOWN(it->start) - true_length + (offset-true_offset);
-      vma->next = it->next;
-      filedup(vma->file);
-
+      if((vma = vma_alloc()) == 0)
+        return -1;
+      vma_init(vma, PGROUNDDOWN(it->start) - true_length + (offset-true_offset),
+          length, f, offset, prot, flags, it->next);
       it->next = vma;
       return vma->start;
     }
     it = it->next;
   }
-  release(&vma->lock);
-  vma_free(vma);
   return -1;
 }
 

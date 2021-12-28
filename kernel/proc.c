@@ -171,8 +171,7 @@ freeproc(struct proc *p)
   p->xstate = 0;
   p->ticks = 0;
 
-  p->vma_end.length = 0;
-  p->vma_start.next = &p->vma_end;
+  p->vma_start.next = 0;
 
   acquire(&tickets_lock);
   if(p->state == RUNNING || p->state == RUNNABLE)
@@ -272,14 +271,7 @@ userinit(void)
   p->vma_start.start = MAXVA - 2 * PGSIZE;
   p->vma_start.permission = 0;
   p->vma_start.offset = 0;
-  p->vma_start.next = &p->vma_end;
-
-  p->vma_end.file = 0;
-  p->vma_end.length = PGSIZE;
-  p->vma_end.start = 0;
-  p->vma_end.permission = 0;
-  p->vma_end.offset = 0;
-  p->vma_end.next = 0;
+  p->vma_start.next = 0;
 
   release(&p->lock);
 }
@@ -358,30 +350,34 @@ fork(void)
   release(&tickets_lock);
 
   vma_copy(&np->vma_start, &p->vma_start);
-  vma_copy(&np->vma_end, &p->vma_end);
 
   struct vma *it1 = &p->vma_start,
              *it2 = &np->vma_start;
   /** struct vma *it2 = &np->vma_start; */
 
-  while(it1->next != &p->vma_end) {
-    it2->next = vma_alloc();
+  while(it1->next != 0) {
+    if((it2->next = vma_alloc()) == 0 ||
+        uvmcopy_offseted(p->pagetable, np->pagetable, it1->start, it1->length) < 0){
+      // on error free every VMA of the new proc
+      for(struct vma *it = &np->vma_start; it != it2; it = it->next)
+        vma_free(it);
+      if(it2->next) {
+        it2->next->file = 0;
+        vma_free(it2->next);
+      }
+      vma_free(it2);
+
+      freeproc(np);
+      release(&np->lock);
+      return -1;
+    }
     it1 = it1->next;
     it2 = it2->next;
     vma_copy(it2, it1);
     release(&it2->lock);
     filedup(it2->file);
-    if(uvmcopy_offseted(p->pagetable, np->pagetable, it1->start, it1->length) < 0){
-      for(struct vma *it = &np->vma_start; it != it2; it = it->next)
-        vma_free(it);
-      it2->file = 0;
-      vma_free(it2);
-      freeproc(np);
-      release(&np->lock);
-      return -1;
-    }
   }
-  it2->next = &np->vma_end; // no need for lock
+  it2->next = 0; // no need for lock
   release(&np->lock);
 
   return pid;

@@ -277,22 +277,22 @@ uint64 lazyalloc(pagetable_t pagetable, uint64 va)
 
   // Look for the VMA which has va
 
-  for(vma = &p->vma_start; vma->next != 0; vma = vma->next) {
+  for(vma = &p->vma_start; vma != 0; vma = vma->next) {
     if(vma->start <= va && va < vma->start + vma->length)
       break;
   }
 
-  if(vma == &p->vma_end && (va >= p->sz || va < PGROUNDUP(p->trapframe->sp)))
+  if(vma == 0)
     return 0;
-  
+
   mem = kalloc();
   if(mem == 0)
     return 0;
 
   memset(mem, 0, PGSIZE);
 
-  if(vma != &p->vma_end) {
-    int file_off = PGROUNDDOWN(va - vma->start + vma->offset);
+  if(vma != 0) {
+    int file_off = PGROUNDDOWN(va - vma->start + vma->offset); // TODO: CHANGE
     uint64 remaining_length = vma->file->ip->size - file_off;
     uint64 size = PGSIZE >= remaining_length ? remaining_length : PGSIZE;
 
