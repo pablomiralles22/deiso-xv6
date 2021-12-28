@@ -8,8 +8,6 @@
 #include "elf.h"
 #include "vma.h"
 
-static int loadseg(pde_t *pgdir, uint64 addr, struct inode *ip, uint offset, uint sz);
-
 int
 exec(char *path, char **argv)
 {
@@ -22,7 +20,9 @@ exec(char *path, char **argv)
   struct file *elf_file;
   pagetable_t pagetable = 0, oldpagetable;
   struct proc *p = myproc();
-  struct vma *vma, *aux;
+  struct vma *vma = 0,
+             *aux = 0,
+             *old_vma = p->vma_start.next; // needed to restore in case of error
 
   begin_op();
 
@@ -48,7 +48,7 @@ exec(char *path, char **argv)
   elf_file->off      = 0;
   elf_file->readable = 1;
   elf_file->writable = 0;
-  elf_file->ref      = 0;
+  elf_file->ref      = 1; // avoid filedup panic
   elf_file->ip       = ip;
 
 
@@ -66,22 +66,23 @@ exec(char *path, char **argv)
     if((ph.vaddr % PGSIZE) != 0)
       goto bad;
     // Get VMA for segment
-    aux = vma;
-    if((vma = vma_alloc()) == 0)
-      goto bad;
-
-    int permission;
+    int permission = 0;
     if(ph.flags & ELF_PROG_FLAG_WRITE)
       permission |= PROT_WRITE;
     if(ph.flags & ELF_PROG_FLAG_READ)
       permission |= PROT_READ;
-    vma_init(vma, ph.vaddr, ph.filesz, elf_file, ph.off, permission, MAP_PRIVATE, aux);
+    aux = vma;
+    if((vma = vma_alloc()) == 0)
+      goto bad;
+    _vma_init(vma, ph.vaddr, ph.memsz, ph.filesz, elf_file,
+        ph.off, permission, MAP_PRIVATE, aux);
   }
-  iunlockput(ip);
+  if(elf_file->ref <= 1) goto bad;
+  else elf_file->ref--; // shouldn't have any problem with concurrency
+  iunlock(ip); // don't deref inode on finish
   end_op();
   ip = 0;
 
-  p = myproc();
   uint64 oldsz = p->sz;
 
   // Allocate VMA for stack
@@ -92,15 +93,16 @@ exec(char *path, char **argv)
   sz += 2 * PGSIZE;
   sp = sz;
   stackbase = sp - PGSIZE;
-  vma_init(vma, stackbase, PGSIZE, 0, 0, PROT_READ | PROT_WRITE, MAP_PRIVATE, aux);
-
+  _vma_init(vma, stackbase, PGSIZE, 0, 0, 0, PROT_READ | PROT_WRITE, MAP_PRIVATE, aux);
 
   // Allocate VMA for heap
   aux = vma;
   if((vma = vma_alloc()) == 0)
     goto bad;
-  vma_init(vma, sz, 0, 0, 0, PROT_READ | PROT_WRITE, MAP_PRIVATE, aux);
+  _vma_init(vma, sz, 0, 0, 0, 0, PROT_READ | PROT_WRITE, MAP_PRIVATE, aux);
 
+  // Need new vmas before writing to stack
+  p->vma_start.next = vma;
   // Push argument strings, prepare rest of stack in ustack.
   for(argc = 0; argv[argc]; argc++) {
     if(argc >= MAXARG)
@@ -114,6 +116,12 @@ exec(char *path, char **argv)
     ustack[argc] = sp;
   }
   ustack[argc] = 0;
+
+  /** printf("EXEC CALL from PID=%d\n", p->pid); */
+  /** for(struct vma *it = &p->vma_start; it != 0; it = it->next) { */
+  /**   printf("VMA %p, [%p, %p]\n", it, it->start, it->start+it->length); */
+  /** } */
+  /** printf("----------\n"); */
 
   // push the array of argv[] pointers.
   sp -= (argc+1) * sizeof(uint64);
@@ -138,12 +146,14 @@ exec(char *path, char **argv)
   oldpagetable = p->pagetable;
   p->pagetable = pagetable;
   p->sz = sz;
-  for(struct vma *it = p->vma_start.next, *next; (next = it->next) != 0; it = next)
-    vma_free(it);
-  p->heap = p->vma_start.next = vma; // set new VMAs
   p->trapframe->epc = elf.entry;  // initial program counter = main
   p->trapframe->sp = sp; // initial stack pointer
   proc_freepagetable(oldpagetable, oldsz);
+  for(struct vma *it = old_vma, *next; it != 0; it = next) {
+    next = it->next;
+    vma_free(it);
+  }
+  p->heap = p->vma_start.next = vma; // set new VMAs
 
   return argc; // this ends up in a0, the first argument to main(argc, argv)
 
@@ -154,32 +164,10 @@ exec(char *path, char **argv)
     iunlockput(ip);
     end_op();
   }
-  for(struct vma *it = vma; it != 0; it = it->next)
+  p->vma_start.next = old_vma; // undo change of VMAs
+  for(struct vma *it = vma, *next; it != 0; it = next) {
+    next = it->next;
     vma_free(it);
-  return -1;
-}
-
-// Load a program segment into pagetable at virtual address va.
-// va must be page-aligned
-// and the pages from va to va+sz must already be mapped.
-// Returns 0 on success, -1 on failure.
-static int
-loadseg(pagetable_t pagetable, uint64 va, struct inode *ip, uint offset, uint sz)
-{
-  uint i, n;
-  uint64 pa;
-
-  for(i = 0; i < sz; i += PGSIZE){
-    pa = walkaddr(pagetable, va + i);
-    if(pa == 0)
-      panic("loadseg: address should exist");
-    if(sz - i < PGSIZE)
-      n = sz - i;
-    else
-      n = PGSIZE;
-    if(readi(ip, 0, (uint64)pa, offset+i, n) != n)
-      return -1;
   }
-
-  return 0;
+  return -1;
 }

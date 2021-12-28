@@ -268,6 +268,7 @@ userinit(void)
 
   p->vma_start.file = 0;
   p->vma_start.length = 2 * PGSIZE;
+  p->vma_start.file_length = 0;
   p->vma_start.start = MAXVA - 2 * PGSIZE;
   p->vma_start.permission = 0;
   p->vma_start.offset = 0;
@@ -353,20 +354,15 @@ fork(void)
 
   struct vma *it1 = &p->vma_start,
              *it2 = &np->vma_start;
-  /** struct vma *it2 = &np->vma_start; */
 
   while(it1->next != 0) {
-    if((it2->next = vma_alloc()) == 0 ||
-        uvmcopy_offseted(p->pagetable, np->pagetable, it1->start, it1->length) < 0){
+    if((it2->next = vma_alloc()) == 0 || 
+        uvmcopy_offseted(p->pagetable, np->pagetable, it1->next->start, it1->next->length) < 0){
       // on error free every VMA of the new proc
-      for(struct vma *it = &np->vma_start; it != it2; it = it->next)
+      for(struct vma *it = np->vma_start.next, *next; it != 0; it = next) {
+        next = it->next;
         vma_free(it);
-      if(it2->next) {
-        it2->next->file = 0;
-        vma_free(it2->next);
       }
-      vma_free(it2);
-
       freeproc(np);
       release(&np->lock);
       return -1;
@@ -375,7 +371,8 @@ fork(void)
     it2 = it2->next;
     vma_copy(it2, it1);
     release(&it2->lock);
-    filedup(it2->file);
+    if(it2->file) filedup(it2->file);
+    if(p->heap == it1) np->heap = it2;
   }
   it2->next = 0; // no need for lock
   release(&np->lock);

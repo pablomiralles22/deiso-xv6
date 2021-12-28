@@ -47,104 +47,109 @@ sys_sbrk(void)
   struct vma *heap = p->heap,
              *prev_heap;
   int n;
+  uint64 addr;
 
   if(argint(0, &n) < 0)
     return -1;
-  if(heap->length < -n)
-    return heap->start + heap->length;
+  if(n < 0 && heap->length < (uint64)(-n))
+    return -1;
   // check not overtaking next vma
-  for(prev_heap = &p->vma_start; prev_heap->next != heap; prev_heap = prev_heap->next);
-  if(heap->start + heap->length + n > prev_heap->start)
-    return heap->start + heap->length;
+  if(n > 0) {
+    for(prev_heap = &p->vma_start; prev_heap->next != heap; prev_heap = prev_heap->next);
+    if(heap->start + heap->length + n > prev_heap->start)
+      return -1;
+  }
 
+  addr = heap->start + heap->length;
   if(n < 0) vma_free_mem(heap, heap->start + heap->length + n, -n);
   heap->length += n;
-  return heap->start + heap->length;
+  p->sz = heap->start + heap->length;
+  return addr;
 }
 
 uint64
 sys_sleep(void)
 {
-  int n;
-  uint ticks0;
+int n;
+uint ticks0;
 
-  if(argint(0, &n) < 0)
+if(argint(0, &n) < 0)
+  return -1;
+acquire(&tickslock);
+ticks0 = ticks;
+while(ticks - ticks0 < n){
+  if(myproc()->killed){
+    release(&tickslock);
+      return -1;
+    }
+    sleep(&ticks, &tickslock);
+  }
+  release(&tickslock);
+  return 0;
+}
+
+uint64
+sys_kill(void)
+{
+  int pid;
+
+  if(argint(0, &pid) < 0)
     return -1;
+  return kill(pid);
+}
+
+// return how many clock tick interrupts have occurred
+// since start.
+uint64
+sys_uptime(void)
+{
+  uint xticks;
+
   acquire(&tickslock);
-  ticks0 = ticks;
-  while(ticks - ticks0 < n){
-    if(myproc()->killed){
-      release(&tickslock);
-        return -1;
-      }
-      sleep(&ticks, &tickslock);
-    }
-    release(&tickslock);
-    return 0;
+  xticks = ticks;
+  release(&tickslock);
+  return xticks;
+}
+
+// stablish the number of tickets of the caller process 
+uint64
+sys_settickets(void)
+{
+  int n;
+  struct proc* p = myproc();
+
+  if(argint(0, &n) < 0 || n < MINTICKETS)
+    return -1;
+  acquire(&p->lock);
+  acquire(&tickets_lock);
+  total_tickets += n - p->tickets;
+  p->tickets = n;
+  release(&tickets_lock);
+  release(&p->lock);
+  return 0;
+}
+
+uint64
+sys_getpinfo(void)
+{
+  uint64 addr;
+  struct pstat ps = { 0 };
+
+  if(argaddr(0, &addr) < 0)
+    return -1;
+
+  for(int i = 0; i < NPROC; ++i) {
+    /* if(proc[i].state != UNUSED) { */
+    ps.inuse[i]   = proc[i].state != UNUSED;
+    ps.pid[i]     = proc[i].pid;
+    ps.tickets[i] = proc[i].tickets;
+    ps.ticks[i]   = proc[i].ticks;
   }
 
-  uint64
-  sys_kill(void)
-  {
-    int pid;
-
-    if(argint(0, &pid) < 0)
-      return -1;
-    return kill(pid);
-  }
-
-  // return how many clock tick interrupts have occurred
-  // since start.
-  uint64
-  sys_uptime(void)
-  {
-    uint xticks;
-
-    acquire(&tickslock);
-    xticks = ticks;
-    release(&tickslock);
-    return xticks;
-  }
-
-  // stablish the number of tickets of the caller process 
-  uint64
-  sys_settickets(void)
-  {
-    int n;
-    struct proc* p = myproc();
-
-    if(argint(0, &n) < 0 || n < MINTICKETS)
-      return -1;
-    acquire(&p->lock);
-    acquire(&tickets_lock);
-    total_tickets += n - p->tickets;
-    p->tickets = n;
-    release(&tickets_lock);
-    release(&p->lock);
-    return 0;
-  }
-
-  uint64
-  sys_getpinfo(void)
-  {
-    uint64 addr;
-    struct pstat ps = { 0 };
-
-    if(argaddr(0, &addr) < 0)
-      return -1;
-
-    for(int i = 0; i < NPROC; ++i) {
-      /* if(proc[i].state != UNUSED) { */
-      ps.inuse[i]   = proc[i].state != UNUSED;
-      ps.pid[i]     = proc[i].pid;
-      ps.tickets[i] = proc[i].tickets;
-      ps.ticks[i]   = proc[i].ticks;
-    }
-
-    if(copyout(myproc()->pagetable, addr, (char *) &ps, sizeof(struct pstat)) < 0)
-      return -1;
-    return 0;
-  }
+  if(copyout(myproc()->pagetable, addr, (char *) &ps, sizeof(struct pstat)) < 0)
+    return -1;
+  return 0;
+}
 
 uint64
 sys_mmap(void) {
@@ -228,3 +233,4 @@ sys_munmap(void) {
   printf("VMA not found. Range: %p - %p", addr, addr + length);
   return -1;
 }
+

@@ -107,15 +107,12 @@ walkaddr(pagetable_t pagetable, uint64 va)
   pte_t *pte;
   uint64 pa;
 
-  if(va >= MAXVA)
-    return 0;
+  if(va >= MAXVA) return 0;
 
   pte = walk(pagetable, va, 0);
-  if(pte == 0 || (*pte & PTE_V) == 0 || (*pte & PTE_U) == 0){
-    uint64 lazypa = lazyalloc(pagetable, va);
-    pa = (lazypa <= 0) ? 0 : lazypa;
-  } else
-    pa = PTE2PA(*pte);
+  if(pte == 0 || (*pte & PTE_V) == 0 || (*pte & PTE_U) == 0)
+    pa = lazyalloc(pagetable, va);
+  else pa = PTE2PA(*pte);
   return pa;
 }
 
@@ -274,30 +271,32 @@ uint64 lazyalloc(pagetable_t pagetable, uint64 va)
   struct proc *p = myproc();
   struct vma *vma;
   int permissions;
-
   // Look for the VMA which has va
-  for(vma = &p->vma_start; vma != 0; vma = vma->next)
+  for(vma = &(p->vma_start); vma != 0; vma = vma->next) {
     if(vma->start <= va && va < vma->start + vma->length)
       break;
-
+  }
   if(vma == 0) return 0;
+  /** printf("Lazy alloc --> PID: %d, VA: %p, VMA: %p (%p, %p) %p)\n", */
+  /**     p->pid, va, vma, vma->start, vma->start + vma->length, vma->file); */
 
   mem = kalloc();
   if(mem == 0) return 0;
-
   memset(mem, 0, PGSIZE);
 
   if(vma->file) {
-    int file_off = PGROUNDDOWN(va - vma->start) + vma->offset;
-    uint64 remaining_length = vma->file->ip->size - file_off;
-    uint64 size = PGSIZE >= remaining_length ? remaining_length : PGSIZE;
-
-    ilock(vma->file->ip);
-    readi(vma->file->ip, 0, (uint64) mem, file_off, size);
-    iunlock(vma->file->ip);
+    uint64 pa = PGROUNDDOWN(va - vma->start);
+    int file_off = pa + vma->offset;
+    if(vma->file_length + vma->start > pa) {
+      uint64 remaining_length = vma->file_length + vma->start - pa;
+      uint64 size = PGSIZE >= remaining_length ? remaining_length : PGSIZE;
+      ilock(vma->file->ip);
+      readi(vma->file->ip, 0, (uint64) mem, file_off, size);
+      iunlock(vma->file->ip);
+    }
   }
 
-  permissions = (vma->permission << 1)|PTE_U|PTE_X;
+  permissions = (vma->permission << 1)|PTE_U|PTE_X|PTE_V;
   if(mappages(pagetable, PGROUNDDOWN(va), PGSIZE, (uint64)mem, permissions) != 0){
     kfree(mem);
     return 0;
