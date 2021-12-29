@@ -133,8 +133,8 @@ uint64 handle_copy_on_write(pagetable_t pagetable, uint64 va)
       return -1;
     }
     memmove(mem, (void*)pa, PGSIZE);
-    int permissions = (PTE_FLAGS(*pte) & (~PTE_C)) | PTE_W;
-    if(mappages(pagetable, va, PGSIZE, (uint64)mem, permissions) != 0){
+    int perms = (PTE_FLAGS(*pte) & (~PTE_C)) | PTE_W;
+    if(mappages(pagetable, va, PGSIZE, (uint64)mem, perms) != 0){
       decref(mem);
       return -1;
     }
@@ -297,7 +297,7 @@ uint64 lazyalloc(pagetable_t pagetable, uint64 va)
   char *mem;
   struct proc *p = myproc();
   struct vma *vma;
-  int permissions;
+  int perms;
 
   // Look for the VMA which has va
 
@@ -323,10 +323,10 @@ uint64 lazyalloc(pagetable_t pagetable, uint64 va)
     ilock(vma->file->ip);
     readi(vma->file->ip, 0, (uint64) mem, file_off, size); // TODO: assume file?
     iunlock(vma->file->ip);
-    permissions = (vma->permission << 1)|PTE_U|PTE_X;
-  } else permissions = PTE_W|PTE_X|PTE_R|PTE_U;
+    perms = (vma->permission << 1)|PTE_U|PTE_X;
+  } else perms = PTE_W|PTE_X|PTE_R|PTE_U;
 
-  if(mappages(pagetable, PGROUNDDOWN(va), PGSIZE, (uint64)mem, permissions) != 0){
+  if(mappages(pagetable, PGROUNDDOWN(va), PGSIZE, (uint64)mem, perms) != 0){
     decref(mem);
     return 0;
   }
@@ -375,25 +375,43 @@ uvmcopy_offseted(pagetable_t old, pagetable_t new, uint64 start, uint64 sz)
 {
   pte_t *pte;
   uint64 pa, i;
-  uint flags;
+  uint perms;
+  struct vma *vma;
+  struct proc *p = myproc();
 
   for(i = PGROUNDDOWN(start); i < sz + PGROUNDDOWN(start); i += PGSIZE){
     pte = walk(old, i, 0);
     if((pte > 0) && (*pte & PTE_V)){
       pa = PTE2PA(*pte);
-      // mark as COW 
-      flags = (PTE_FLAGS(*pte) & (~PTE_W)) | PTE_C;
-      
-      // map same page as father
-      incref((void*)pa);
-      if(mappages(new, i, PGSIZE, pa, flags) != 0){
-        decref((void*)pa);   
-        goto err;
-      } 
-      // remap father's
-      if(mappages(old, i, PGSIZE, pa, flags) != 0){
-        decref((void*)pa);
-        panic("Error with mapping");
+      perms = PTE_FLAGS(*pte);
+
+      // Look for the VMA which has i
+      for(vma = &p->vma_start; vma->next != 0; vma = vma->next) {
+        if(vma->start <= i && i < vma->start + vma->length)
+          break;
+      }
+
+      if(vma->flags & MAP_PRIVATE){
+        // mark as COW if map is private
+        perms = (perms & (~PTE_W)) | PTE_C;
+        // map same page as father
+        incref((void*)pa);
+        if(mappages(new, i, PGSIZE, pa, perms) != 0){
+          decref((void*)pa);   
+          goto err;
+        } 
+        // remap father's
+        if(mappages(old, i, PGSIZE, pa, perms) != 0){
+          decref((void*)pa);
+          panic("Error with mapping");
+        }
+      }
+      else{
+        incref((void*)pa);
+        if(mappages(new, i, PGSIZE, pa, perms) != 0){
+          decref((void*)pa);   
+          goto err;
+        } 
       }
     }
   }
@@ -435,19 +453,19 @@ copyout(pagetable_t pagetable, uint64 dstva, char *src, uint64 len)
     va0 = PGROUNDDOWN(dstva);
     pte_t *pte = walk(pagetable, va0, 0);
     if(!is_page_mapped(pagetable, va0)){
-        printf("handle_on_copy: pte is not valid");
+        printf("copyout: pte is not valid");
         return -1;
     }
     pa0 = PTE2PA(*pte);
     if((*pte) & PTE_C) {
       char *mem = kalloc();
       if(mem == 0){
-        printf("handle_copy_on_write: no physical page found\n");
+        printf("copyout: no physical page found\n");
         return -1;
       }
       memmove(mem, (void*)pa0, PGSIZE);
-      int permissions = (PTE_FLAGS(*pte) & (~PTE_C)) | PTE_W;
-      if(mappages(pagetable, va0, PGSIZE, (uint64)mem, permissions) != 0){
+      int perms = (PTE_FLAGS(*pte) & (~PTE_C)) | PTE_W;
+      if(mappages(pagetable, va0, PGSIZE, (uint64)mem, perms) != 0){
         decref(mem);
         return -1;
       }
