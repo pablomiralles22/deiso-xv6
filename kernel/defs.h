@@ -72,7 +72,6 @@ void            kinit(void);
 void            incref(void *);
 void            decref(void *);
 uint            getref(void *);
-void            printref(char *);
 
 // log.c
 void            initlog(int, struct superblock*);
@@ -183,6 +182,7 @@ int             is_page_mapped(pagetable_t, uint64);
 int             copyout(pagetable_t, uint64, char *, uint64);
 int             copyin(pagetable_t, char *, uint64, uint64);
 int             copyinstr(pagetable_t, char *, uint64, uint64);
+uint64          handle_copy_on_write(pagetable_t , uint64);
 
 // plic.c
 void            plicinit(void);

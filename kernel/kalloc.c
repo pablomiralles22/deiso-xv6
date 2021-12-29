@@ -53,8 +53,9 @@ freerange(void *pa_start, void *pa_end)
 {
   char *p;
   p = (char*)PGROUNDUP((uint64)pa_start);
-  for(; p + PGSIZE <= (char*)pa_end; p += PGSIZE)
-    kfree(p);
+  for(; p + PGSIZE <= (char*)pa_end; p += PGSIZE) {
+    decref(p);
+  }
 }
 
 // Called by _freerange, which is only called by kinit.
@@ -95,9 +96,9 @@ kfree(void *pa)
   memset(pa, 1, PGSIZE);
 
   r = &kmem.runs[(uint64)pa / PGSIZE];
-  if (r->ref != 1) {
-    // assert ref == 1
-    printf("kfree: assert ref == 1 failed\n");
+  if (r->ref != 0) {
+    // assert ref == 0
+    printf("kfree: assert ref == 0 failed\n");
     printf("0x%x %d\n", r, r->ref);
     exit(-1);
   }
@@ -149,6 +150,7 @@ void
 decref(void *pa)
 {
   struct run *r;
+  char free = 0;
 
   if(((uint64)pa % PGSIZE) != 0 || (char*)pa < end || (uint64)pa >= PHYSTOP)
     panic("decref");
@@ -156,7 +158,11 @@ decref(void *pa)
   acquire(&kmem.lock);
   r = &kmem.runs[(uint64)pa / PGSIZE];
   r->ref--;
+  if(r->ref == 0) free = 1;
   release(&kmem.lock);
+
+  if(free)
+    kfree((void*)pa);
 }
 
 // Get references counter of a page descriptor.
@@ -165,12 +171,4 @@ getref(void *pa)
 {
   struct run *r = &kmem.runs[(uint64)pa / PGSIZE];
   return r->ref;
-}
-
-// Print the references counter of a page descriptor.
-void
-printref(char *pa)
-{
-  struct run *r = &kmem.runs[(uint64)pa / PGSIZE];
-  printf("printref: address: 0x%p, ref: %d\n", r, r->ref);
 }

@@ -17,6 +17,7 @@ extern char etext[];  // kernel.ld sets this to end of kernel code.
 
 extern char trampoline[]; // trampoline.S
 
+
 // Make a direct-map page table for the kernel.
 pagetable_t
 kvmmake(void)
@@ -100,22 +101,45 @@ walk(pagetable_t pagetable, uint64 va, int alloc)
 }
 
 // Look up a virtual address, allocate if not mapped
+// and copy on write if it's mapped but not privately.
 // Can only be used to look up user pages.
 uint64
 walkaddr(pagetable_t pagetable, uint64 va)
 {
-  pte_t *pte;
   uint64 pa;
-
   if(va >= MAXVA)
     return 0;
-
-  pte = walk(pagetable, va, 0);
-  if(pte == 0 || (*pte & PTE_V) == 0 || (*pte & PTE_U) == 0){
+  if(!is_page_mapped(pagetable, va)){
     uint64 lazypa = lazyalloc(pagetable, va);
     pa = (lazypa <= 0) ? 0 : lazypa;
   } else
-    pa = PTE2PA(*pte);
+    pa = handle_copy_on_write(pagetable, PGROUNDDOWN(va));
+  return pa;
+}
+
+// Takes over the copy on write
+uint64 handle_copy_on_write(pagetable_t pagetable, uint64 va) 
+{
+  pte_t *pte = walk(pagetable, va, 0);
+  if(!is_page_mapped(pagetable, va)){
+      printf("handle_on_copy: pte is not valid");
+      return -1;
+  }
+  uint64 pa = PTE2PA(*pte);
+  if((*pte) & PTE_C) {
+    char *mem = kalloc();
+    if(mem == 0){
+      printf("handle_copy_on_write: no physical page found\n");
+      return -1;
+    }
+    memmove(mem, (void*)pa, PGSIZE);
+    int permissions = (PTE_FLAGS(*pte) & (~PTE_C)) | PTE_W;
+    if(mappages(pagetable, va, PGSIZE, (uint64)mem, permissions) != 0){
+      decref(mem);
+      return -1;
+    }
+    decref((void*)PGROUNDUP(pa));
+  }
   return pa;
 }
 
@@ -185,7 +209,7 @@ uvmunmap(pagetable_t pagetable, uint64 va, uint64 npages, int do_free)
       panic("uvmunmap: not a leaf");
     if(do_free){
       uint64 pa = PTE2PA(*pte);
-      kfree((void*)pa);
+      decref((void*)pa);
     }
     *pte = 0;
   }
@@ -240,7 +264,7 @@ uvmalloc(pagetable_t pagetable, uint64 oldsz, uint64 newsz)
     }
     memset(mem, 0, PGSIZE);
     if(mappages(pagetable, a, PGSIZE, (uint64)mem, PTE_W|PTE_X|PTE_R|PTE_U) != 0){
-      kfree(mem);
+      decref(mem);
       uvmdealloc(pagetable, a, oldsz);
       return 0;
     }
@@ -303,7 +327,7 @@ uint64 lazyalloc(pagetable_t pagetable, uint64 va)
   } else permissions = PTE_W|PTE_X|PTE_R|PTE_U;
 
   if(mappages(pagetable, PGROUNDDOWN(va), PGSIZE, (uint64)mem, permissions) != 0){
-    kfree(mem);
+    decref(mem);
     return 0;
   }
 
@@ -327,7 +351,7 @@ freewalk(pagetable_t pagetable)
       panic("freewalk: leaf");
     }
   }
-  kfree((void*)pagetable);
+  decref((void*)pagetable);
 }
 
 // Free user memory pages,
@@ -352,19 +376,24 @@ uvmcopy_offseted(pagetable_t old, pagetable_t new, uint64 start, uint64 sz)
   pte_t *pte;
   uint64 pa, i;
   uint flags;
-  char *mem;
 
   for(i = PGROUNDDOWN(start); i < sz + PGROUNDDOWN(start); i += PGSIZE){
     pte = walk(old, i, 0);
     if((pte > 0) && (*pte & PTE_V)){
       pa = PTE2PA(*pte);
-      flags = PTE_FLAGS(*pte);
-      if((mem = kalloc()) == 0)
+      // mark as COW 
+      flags = (PTE_FLAGS(*pte) & (~PTE_W)) | PTE_C;
+      
+      // map same page as father
+      incref((void*)pa);
+      if(mappages(new, i, PGSIZE, pa, flags) != 0){
+        decref((void*)pa);   
         goto err;
-      memmove(mem, (char*)pa, PGSIZE);
-      if(mappages(new, i, PGSIZE, (uint64)mem, flags) != 0){
-        kfree(mem);
-        goto err;
+      } 
+      // remap father's
+      if(mappages(old, i, PGSIZE, pa, flags) != 0){
+        decref((void*)pa);
+        panic("Error with mapping");
       }
     }
   }
@@ -404,9 +433,27 @@ copyout(pagetable_t pagetable, uint64 dstva, char *src, uint64 len)
 
   while(len > 0){
     va0 = PGROUNDDOWN(dstva);
-    pa0 = walkaddr(pagetable, va0);
-    if(pa0 == 0)
-      return -1;
+    pte_t *pte = walk(pagetable, va0, 0);
+    if(!is_page_mapped(pagetable, va0)){
+        printf("handle_on_copy: pte is not valid");
+        return -1;
+    }
+    pa0 = PTE2PA(*pte);
+    if((*pte) & PTE_C) {
+      char *mem = kalloc();
+      if(mem == 0){
+        printf("handle_copy_on_write: no physical page found\n");
+        return -1;
+      }
+      memmove(mem, (void*)pa0, PGSIZE);
+      int permissions = (PTE_FLAGS(*pte) & (~PTE_C)) | PTE_W;
+      if(mappages(pagetable, va0, PGSIZE, (uint64)mem, permissions) != 0){
+        decref(mem);
+        return -1;
+      }
+      pa0 = (uint64)mem;
+    }
+
     n = PGSIZE - (dstva - va0);
     if(n > len)
       n = len;
