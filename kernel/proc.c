@@ -159,8 +159,9 @@ freeproc(struct proc *p)
   if(p->trapframe)
     kfree((void*)p->trapframe);
   p->trapframe = 0;
-  if(p->pagetable)
-    proc_freepagetable(p->pagetable, p->sz);
+  // Free on exit?
+  /** if(p->pagetable) */
+  /**   proc_freepagetable(p->pagetable, p->sz); */
   p->pagetable = 0;
   p->sz = 0;
   p->pid = 0;
@@ -311,14 +312,7 @@ fork(void)
     return -1;
   }
 
-  // Copy user memory from parent to child.
-  if(uvmcopy(p->pagetable, np->pagetable, p->sz) < 0){
-    freeproc(np);
-    release(&np->lock);
-    return -1;
-  }
   np->sz = p->sz;
-
   // Set number of tickets to minimum and ticks to 0
   np->tickets = p->tickets;
   np->ticks = 0;
@@ -359,9 +353,10 @@ fork(void)
     if((it2->next = vma_alloc()) == 0 || 
         uvmcopy_offseted(p->pagetable, np->pagetable, it1->next->start, it1->next->length) < 0){
       // on error free every VMA of the new proc
+      if(it2->next) release(&it2->next->lock);
       for(struct vma *it = np->vma_start.next, *next; it != 0; it = next) {
         next = it->next;
-        vma_free(it);
+        vma_free(np->pagetable, it);
       }
       freeproc(np);
       release(&np->lock);
@@ -415,8 +410,11 @@ exit(int status)
     }
   }
 
-  for(struct vma *it = p->vma_start.next, *next; (next = it->next) != 0; it = next)
-    vma_free(it);
+  for(struct vma *it = p->vma_start.next, *next; it != 0; it = next) {
+    next = it->next;
+    vma_free(p->pagetable, it);
+  }
+  proc_freepagetable(p->pagetable, 0);
 
   begin_op();
   iput(p->cwd);

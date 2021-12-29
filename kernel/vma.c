@@ -16,10 +16,9 @@ struct vma *vma_alloc() {
   panic("Out of VMAs");
 }
 
-void vma_free_mem(struct vma *vma,uint64 addr, uint64 length) {
+void vma_free_mem(pagetable_t pagetable, struct vma *vma, uint64 addr, uint64 length) {
   struct file *f = vma->file;
-  struct proc *p = myproc();
-  int write = (vma->flags & MAP_SHARED);
+  int write = (vma->flags & MAP_SHARED) && vma->file;
   uint64 pos, file_pos, start, end, write_end;
 
   for(pos = PGROUNDDOWN(addr); pos < addr + length; pos += PGSIZE) {
@@ -29,7 +28,7 @@ void vma_free_mem(struct vma *vma,uint64 addr, uint64 length) {
                 ? vma->start + vma->file_length : end;
     file_pos = start - vma->start + vma->offset;
 
-    if(is_page_mapped(p->pagetable, pos)) {
+    if(is_page_mapped(pagetable, pos)) {
       if(write && write_end > start) {
         begin_op();
         ilock(f->ip);
@@ -39,17 +38,16 @@ void vma_free_mem(struct vma *vma,uint64 addr, uint64 length) {
       }
       if((start > pos && start > vma->start) ||
          (end < pos+PGSIZE && end < vma->start + vma->length))
-        continue;
-      uvmunmap(p->pagetable, pos, 1, 1);
+        continue; // do not unmap if there is still part of the vma in the page
+      uvmunmap(pagetable, pos, 1, 1);
     }
   }
 }
 
-void vma_free(struct vma *vma) {
-  if(vma->file != 0) {
-    vma_free_mem(vma, vma->start, vma->file_length);
+void vma_free(pagetable_t pagetable, struct vma *vma) {
+  vma_free_mem(pagetable, vma, vma->start, vma->length);
+  if(vma->file != 0)
     fileclose(vma->file);
-  }
   vma->start = 0;
   vma->next = 0;
   vma->file = 0;

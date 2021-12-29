@@ -151,9 +151,15 @@ exec(char *path, char **argv)
   proc_freepagetable(oldpagetable, oldsz);
   for(struct vma *it = old_vma, *next; it != 0; it = next) {
     next = it->next;
-    vma_free(it);
+    vma_free(oldpagetable, it);
   }
-  p->heap = p->vma_start.next = vma; // set new VMAs
+  p->heap = vma; // set heap VMA
+
+  // Stop lazy alloc por binary
+  struct vma *it;
+  for(it = vma; it->next != 0; it = it->next);
+  for(uint64 pa = PGROUNDDOWN(it->start); pa < it->start + it->length; pa += PGSIZE)
+    walkaddr(pagetable, pa);
 
   return argc; // this ends up in a0, the first argument to main(argc, argv)
 
@@ -167,7 +173,9 @@ exec(char *path, char **argv)
   p->vma_start.next = old_vma; // undo change of VMAs
   for(struct vma *it = vma, *next; it != 0; it = next) {
     next = it->next;
-    vma_free(it);
+    vma_free(pagetable, it);
   }
   return -1;
 }
+
+

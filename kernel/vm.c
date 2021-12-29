@@ -119,7 +119,7 @@ walkaddr(pagetable_t pagetable, uint64 va)
 // returns 1 if page is mapped, 0 otherwise
 int is_page_mapped(pagetable_t pagetable, uint64 va) {
   pte_t *pte = walk(pagetable, va, 0);
-  return !(pte == 0 || (*pte & PTE_V) == 0 || (*pte & PTE_U) == 0);
+  return !(pte == 0 || (*pte & PTE_V) == 0);
 }
 
 // add a mapping to the kernel page table.
@@ -349,7 +349,7 @@ uvmcopy_offseted(pagetable_t old, pagetable_t new, uint64 start, uint64 sz)
   uint flags;
   char *mem;
 
-  for(i = PGROUNDDOWN(start); i < sz + PGROUNDDOWN(start); i += PGSIZE){
+  for(i = PGROUNDDOWN(start); i < sz + start; i += PGSIZE){
     pte = walk(old, i, 0);
     if((pte > 0) && (*pte & PTE_V)){
       pa = PTE2PA(*pte);

@@ -19,6 +19,7 @@
 
 #define BUFSZ  ((MAXOPBLOCKS+2)*BSIZE)
 
+int countfree();
 char buf[BUFSZ];
 
 // what if you pass ridiculous pointers to system calls
@@ -1038,6 +1039,7 @@ reparent2(char *s)
       exit(0);
     }
     wait(0);
+    /** printf("Free blocks: %d\n", countfree()); */
   }
 
   exit(0);

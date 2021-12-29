@@ -61,7 +61,7 @@ sys_sbrk(void)
   }
 
   addr = heap->start + heap->length;
-  if(n < 0) vma_free_mem(heap, heap->start + heap->length + n, -n);
+  if(n < 0) vma_free_mem(p->pagetable, heap, heap->start + heap->length + n, -n);
   heap->length += n;
   p->sz = heap->start + heap->length;
   return addr;
@@ -211,18 +211,18 @@ sys_munmap(void) {
       // found VMA
       if(it->start == addr && it->length == length) {
         prev->next = it->next;
-        vma_free(it);
+        vma_free(p->pagetable, it);
         return 0;
       }
 
       if(it->start == addr) { 
         if(PGROUNDDOWN(length) != length) return -1;
-        vma_free_mem(it, addr, length);
+        vma_free_mem(p->pagetable, it, addr, length);
         it->start = addr + length;
         it->offset += length;
         it->length -= length;
       } else if(it->start + it->length == addr + length) {
-        vma_free_mem(it, addr, length);
+        vma_free_mem(p->pagetable, it, addr, length);
         it->length -= length;
       } else {
         printf("Hole in vma not supported. Range: %p - %p", addr, addr + length);
