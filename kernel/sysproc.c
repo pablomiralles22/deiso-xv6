@@ -44,8 +44,7 @@ uint64
 sys_sbrk(void)
 {
   struct proc *p = myproc();
-  struct vma *heap = p->heap,
-             *prev_heap;
+  struct vma *heap = p->heap, *prev_heap;
   int n;
   uint64 addr;
 
@@ -56,12 +55,11 @@ sys_sbrk(void)
   // check not overtaking next vma
   if(n > 0) {
     for(prev_heap = &p->vma_start; prev_heap->next != heap; prev_heap = prev_heap->next);
-    if(heap->start + heap->length + n > prev_heap->start)
+    if(heap->start + heap->length + (uint64) n > prev_heap->start)
       return -1;
   }
-
   addr = heap->start + heap->length;
-  if(n < 0) vma_free_mem(p->pagetable, heap, heap->start + heap->length + n, -n);
+  if(n < 0) vma_free_mem(p->pagetable, heap, addr - (uint64)(-n), -n);
   heap->length += n;
   p->sz = heap->start + heap->length;
   return addr;

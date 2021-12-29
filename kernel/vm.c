@@ -99,21 +99,60 @@ walk(pagetable_t pagetable, uint64 va, int alloc)
   return &pagetable[PX(0, va)];
 }
 
+// Lazy allocation memory for proc p.
+// Returns address of allocated memory or 0 if failed allocating.
+uint64 lazyalloc(pagetable_t pagetable, uint64 va, struct vma *vma)
+{
+  char *mem;
+  int permissions;
+
+  mem = kalloc();
+  if(mem == 0) return 0;
+  memset(mem, 0, PGSIZE);
+
+  if(vma->file) {
+    uint64 pa = PGROUNDDOWN(va - vma->start);
+    int file_off = pa + vma->offset;
+    if(vma->file_length + vma->start > pa) {
+      uint64 remaining_length = vma->file_length + vma->start - pa;
+      uint64 size = PGSIZE >= remaining_length ? remaining_length : PGSIZE;
+      ilock(vma->file->ip);
+      readi(vma->file->ip, 0, (uint64) mem, file_off, size);
+      iunlock(vma->file->ip);
+    }
+  }
+
+  permissions = (vma->permission << 1) | PTE_U | PTE_V;
+  if(mappages(pagetable, PGROUNDDOWN(va), PGSIZE, (uint64)mem, permissions) != 0){
+    kfree(mem);
+    return 0;
+  }
+
+  return (uint64)mem;
+}
+
 // Look up a virtual address, allocate if not mapped
 // Can only be used to look up user pages.
 uint64
 walkaddr(pagetable_t pagetable, uint64 va)
 {
   pte_t *pte;
-  uint64 pa;
+  struct vma *vma;
 
   if(va >= MAXVA) return 0;
 
+  for(vma = &(myproc()->vma_start); vma != 0; vma = vma->next) {
+    if(vma->start <= va && va < vma->start + vma->length)
+      break;
+  }
+  if(vma == 0) return 0;
+
   pte = walk(pagetable, va, 0);
-  if(pte == 0 || (*pte & PTE_V) == 0 || (*pte & PTE_U) == 0)
-    pa = lazyalloc(pagetable, va);
-  else pa = PTE2PA(*pte);
-  return pa;
+  if(pte == 0 || (*pte & PTE_V) == 0)
+    return lazyalloc(pagetable, va, vma);
+  else if((*pte & PTE_U) == 0)
+    return 0;
+  else return PTE2PA(*pte);
 }
 
 void
@@ -270,47 +309,6 @@ uvmdealloc(pagetable_t pagetable, uint64 oldsz, uint64 newsz)
   return newsz;
 }
 
-// Lazy allocation memory for proc p.
-// Returns address of allocated memory or 0 if failed allocating.
-uint64 lazyalloc(pagetable_t pagetable, uint64 va) 
-{
-  char *mem;
-  struct proc *p = myproc();
-  struct vma *vma;
-  int permissions;
-  // Look for the VMA which has va
-  for(vma = &(p->vma_start); vma != 0; vma = vma->next) {
-    if(vma->start <= va && va < vma->start + vma->length)
-      break;
-  }
-  if(vma == 0) return 0;
-  /** printf("Lazy alloc --> PID: %d, VA: %p, VMA: %p (%p, %p) %p)\n", */
-  /**     p->pid, va, vma, vma->start, vma->start + vma->length, vma->file); */
-
-  mem = kalloc();
-  if(mem == 0) return 0;
-  memset(mem, 0, PGSIZE);
-
-  if(vma->file) {
-    uint64 pa = PGROUNDDOWN(va - vma->start);
-    int file_off = pa + vma->offset;
-    if(vma->file_length + vma->start > pa) {
-      uint64 remaining_length = vma->file_length + vma->start - pa;
-      uint64 size = PGSIZE >= remaining_length ? remaining_length : PGSIZE;
-      ilock(vma->file->ip);
-      readi(vma->file->ip, 0, (uint64) mem, file_off, size);
-      iunlock(vma->file->ip);
-    }
-  }
-
-  permissions = (vma->permission << 1) | PTE_U | PTE_V;
-  if(mappages(pagetable, PGROUNDDOWN(va), PGSIZE, (uint64)mem, permissions) != 0){
-    kfree(mem);
-    return 0;
-  }
-
-  return (uint64)mem;
-}
 
 // Recursively free page-table pages.
 // All leaf mappings must already have been removed.

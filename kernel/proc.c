@@ -6,6 +6,7 @@
 #include "vma.h"
 #include "proc.h"
 #include "defs.h"
+#include "vma_flags.h"
 
 static uint ticks_last_start;
 
@@ -273,7 +274,8 @@ userinit(void)
   p->vma_start.start = MAXVA - 2 * PGSIZE;
   p->vma_start.permission = 0;
   p->vma_start.offset = 0;
-  p->vma_start.next = 0;
+  p->vma_start.next = vma_alloc();
+  vma_init(p->vma_start.next, 0, PGSIZE, 0, 0, PROT_EXEC | PROT_WRITE | PROT_READ, MAP_PRIVATE, 0);
 
   release(&p->lock);
 }

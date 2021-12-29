@@ -37,8 +37,13 @@ void vma_free_mem(pagetable_t pagetable, struct vma *vma, uint64 addr, uint64 le
         end_op();
       }
       if((start > pos && start > vma->start) ||
-         (end < pos+PGSIZE && end < vma->start + vma->length))
-        continue; // do not unmap if there is still part of the vma in the page
+         (end < pos+PGSIZE && end < vma->start + vma->length)) {
+        // fill with junk, since we will not unmap
+        uint64 pa = walkaddr(pagetable, start);
+        memset((void *)(pa + (start - pos)), 0, end - start);
+        // do not unmap if there is still part of the vma in the page
+        continue;
+      }
       uvmunmap(pagetable, pos, 1, 1);
     }
   }
