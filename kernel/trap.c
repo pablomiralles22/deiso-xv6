@@ -65,9 +65,11 @@ usertrap(void)
     intr_on();
 
     syscall();
-  } else if(r_scause() == 13 || r_scause() == 15){
-    if(walkaddr(p->pagetable, r_stval()) <= 0)
+  } else if(r_scause() == 12 || r_scause() == 13 || r_scause() == 15){
+    if(walkaddr(p->pagetable, r_stval()) <= 0) {
+      /** printf("usertrap(): could not get VA %p from PID=%d\n", r_stval(), p->pid); */
       p->killed = 1;
+    }
   } else if((which_dev = devintr()) != 0){
     // ok
   } else {

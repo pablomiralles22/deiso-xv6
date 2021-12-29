@@ -6,6 +6,7 @@
 #include "vma.h"
 #include "proc.h"
 #include "defs.h"
+#include "vma_flags.h"
 
 static uint ticks_last_start;
 
@@ -159,8 +160,9 @@ freeproc(struct proc *p)
   if(p->trapframe)
     kfree((void*)p->trapframe);
   p->trapframe = 0;
-  if(p->pagetable)
-    proc_freepagetable(p->pagetable, p->sz);
+  // Free on exit?
+  /** if(p->pagetable) */
+  /**   proc_freepagetable(p->pagetable, p->sz); */
   p->pagetable = 0;
   p->sz = 0;
   p->pid = 0;
@@ -171,8 +173,7 @@ freeproc(struct proc *p)
   p->xstate = 0;
   p->ticks = 0;
 
-  p->vma_end.length = 0;
-  p->vma_start.next = &p->vma_end;
+  p->vma_start.next = 0;
 
   acquire(&tickets_lock);
   if(p->state == RUNNING || p->state == RUNNABLE)
@@ -269,17 +270,12 @@ userinit(void)
 
   p->vma_start.file = 0;
   p->vma_start.length = 2 * PGSIZE;
+  p->vma_start.file_length = 0;
   p->vma_start.start = MAXVA - 2 * PGSIZE;
   p->vma_start.permission = 0;
   p->vma_start.offset = 0;
-  p->vma_start.next = &p->vma_end;
-
-  p->vma_end.file = 0;
-  p->vma_end.length = PGSIZE;
-  p->vma_end.start = 0;
-  p->vma_end.permission = 0;
-  p->vma_end.offset = 0;
-  p->vma_end.next = 0;
+  p->vma_start.next = vma_alloc();
+  vma_init(p->vma_start.next, 0, PGSIZE, 0, 0, PROT_EXEC | PROT_WRITE | PROT_READ, MAP_PRIVATE, 0);
 
   release(&p->lock);
 }
@@ -318,14 +314,7 @@ fork(void)
     return -1;
   }
 
-  // Copy user memory from parent to child.
-  if(uvmcopy(p->pagetable, np->pagetable, p->sz) < 0){
-    freeproc(np);
-    release(&np->lock);
-    return -1;
-  }
   np->sz = p->sz;
-
   // Set number of tickets to minimum and ticks to 0
   np->tickets = p->tickets;
   np->ticks = 0;
@@ -358,30 +347,31 @@ fork(void)
   release(&tickets_lock);
 
   vma_copy(&np->vma_start, &p->vma_start);
-  vma_copy(&np->vma_end, &p->vma_end);
 
   struct vma *it1 = &p->vma_start,
              *it2 = &np->vma_start;
-  /** struct vma *it2 = &np->vma_start; */
 
-  while(it1->next != &p->vma_end) {
-    it2->next = vma_alloc();
-    it1 = it1->next;
-    it2 = it2->next;
-    vma_copy(it2, it1);
-    release(&it2->lock);
-    filedup(it2->file);
-    if(uvmcopy_offseted(p->pagetable, np->pagetable, it1->start, it1->length) < 0){
-      for(struct vma *it = &np->vma_start; it != it2; it = it->next)
-        vma_free(it);
-      it2->file = 0;
-      vma_free(it2);
+  while(it1->next != 0) {
+    if((it2->next = vma_alloc()) == 0 || 
+        uvmcopy_offseted(p->pagetable, np->pagetable, it1->next->start, it1->next->length) < 0){
+      // on error free every VMA of the new proc
+      if(it2->next) release(&it2->next->lock);
+      for(struct vma *it = np->vma_start.next, *next; it != 0; it = next) {
+        next = it->next;
+        vma_free(np->pagetable, it);
+      }
       freeproc(np);
       release(&np->lock);
       return -1;
     }
+    it1 = it1->next;
+    it2 = it2->next;
+    vma_copy(it2, it1);
+    release(&it2->lock);
+    if(it2->file) filedup(it2->file);
+    if(p->heap == it1) np->heap = it2;
   }
-  it2->next = &np->vma_end; // no need for lock
+  it2->next = 0; // no need for lock
   release(&np->lock);
 
   return pid;
@@ -422,8 +412,11 @@ exit(int status)
     }
   }
 
-  for(struct vma *it = p->vma_start.next, *next; (next = it->next) != 0; it = next)
-    vma_free(it);
+  for(struct vma *it = p->vma_start.next, *next; it != 0; it = next) {
+    next = it->next;
+    vma_free(p->pagetable, it);
+  }
+  proc_freepagetable(p->pagetable, 0);
 
   begin_op();
   iput(p->cwd);

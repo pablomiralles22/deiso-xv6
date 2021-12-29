@@ -7,6 +7,7 @@
 #include "spinlock.h"
 #include "proc.h"
 #include "pstat.h"
+#include "vma.h"
 
 uint64
 sys_exit(void)
@@ -42,32 +43,41 @@ sys_wait(void)
 uint64
 sys_sbrk(void)
 {
-  int n, addr;
   struct proc *p = myproc();
+  struct vma *heap = p->heap, *prev_heap;
+  int n;
+  uint64 addr;
 
   if(argint(0, &n) < 0)
     return -1;
-  addr = p->sz;
-  if((addr + n) >= MAXVA - 2*PGSIZE || (addr + n) < PGROUNDUP(p->trapframe->sp))
-    return addr;
-  p->sz = (n < 0) ? uvmdealloc(p->pagetable, addr, addr + n) : addr + n;
-  p->vma_end.length = p->sz;
+  if(n < 0 && heap->length < (uint64)(-n))
+    return -1;
+  // check not overtaking next vma
+  if(n > 0) {
+    for(prev_heap = &p->vma_start; prev_heap->next != heap; prev_heap = prev_heap->next);
+    if(heap->start + heap->length + (uint64) n > prev_heap->start)
+      return -1;
+  }
+  addr = heap->start + heap->length;
+  if(n < 0) vma_free_mem(p->pagetable, heap, addr - (uint64)(-n), -n);
+  heap->length += n;
+  p->sz = heap->start + heap->length;
   return addr;
 }
 
 uint64
 sys_sleep(void)
 {
-  int n;
-  uint ticks0;
+int n;
+uint ticks0;
 
-  if(argint(0, &n) < 0)
-    return -1;
-  acquire(&tickslock);
-  ticks0 = ticks;
-  while(ticks - ticks0 < n){
-    if(myproc()->killed){
-      release(&tickslock);
+if(argint(0, &n) < 0)
+  return -1;
+acquire(&tickslock);
+ticks0 = ticks;
+while(ticks - ticks0 < n){
+  if(myproc()->killed){
+    release(&tickslock);
       return -1;
     }
     sleep(&ticks, &tickslock);
@@ -144,9 +154,9 @@ sys_mmap(void) {
   struct proc *p = myproc();
   struct file *f;
   uint64 addr;
-  size_t length, true_length;
+  size_t length;
   int prot, flags, fd;
-  off_t offset, true_offset;
+  off_t offset;
 
   if(argaddr(0, &addr) < 0) return -1;
   if(argaddr(1, &length) < 0) return -1;
@@ -163,36 +173,22 @@ sys_mmap(void) {
   if((prot & PROT_READ) && (!f->readable))
     return -1;
 
-  true_offset = PGROUNDDOWN(offset);
-  true_length = PGROUNDUP(length + offset-true_offset);
-  /** if(PGROUNDDOWN(offset) != offset) return -1; */
-
-  struct vma *vma = vma_alloc();
-
+  struct vma *vma;
   struct vma *it = &p->vma_start;
 
   while(it->next != 0) {
     uint64 available_space = 
       PGROUNDDOWN(it->start) - PGROUNDUP(it->next->start + it->next->length);
-    if(available_space >= true_length) {
-      vma->length = length;
-      release(&vma->lock);
-
-      vma->file = f;
-      vma->offset = offset;
-      vma->permission = prot;
-      vma->flags = flags;
-      vma->start = PGROUNDDOWN(it->start) - true_length + (offset-true_offset);
-      vma->next = it->next;
-      filedup(vma->file);
-
+    if(available_space >= PGROUNDUP(length)) {
+      if((vma = vma_alloc()) == 0)
+        return -1;
+      vma_init(vma, PGROUNDDOWN(it->start) - PGROUNDUP(length),
+          length, f, offset, prot, flags, it->next);
       it->next = vma;
       return vma->start;
     }
     it = it->next;
   }
-  release(&vma->lock);
-  vma_free(vma);
   return -1;
 }
 
@@ -213,18 +209,18 @@ sys_munmap(void) {
       // found VMA
       if(it->start == addr && it->length == length) {
         prev->next = it->next;
-        vma_free(it);
+        vma_free(p->pagetable, it);
         return 0;
       }
 
       if(it->start == addr) { 
         if(PGROUNDDOWN(length) != length) return -1;
-        vma_free_mem(it, addr, length);
+        vma_free_mem(p->pagetable, it, addr, length);
         it->start = addr + length;
         it->offset += length;
         it->length -= length;
       } else if(it->start + it->length == addr + length) {
-        vma_free_mem(it, addr, length);
+        vma_free_mem(p->pagetable, it, addr, length);
         it->length -= length;
       } else {
         printf("Hole in vma not supported. Range: %p - %p", addr, addr + length);
@@ -235,3 +231,4 @@ sys_munmap(void) {
   printf("VMA not found. Range: %p - %p", addr, addr + length);
   return -1;
 }
+

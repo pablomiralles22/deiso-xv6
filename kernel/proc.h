@@ -114,7 +114,7 @@ struct proc {
   struct inode *cwd;           // Current directory
   char name[16];               // Process name (debugging)
   struct vma vma_start;        // Dummy VMA for MAXVA - 2 pages
-  struct vma vma_end;          // Dummy VMA from Heap downwards
+  struct vma *heap;            // Pointer to HEAP VMA
 };
 
 extern struct proc proc[NPROC];

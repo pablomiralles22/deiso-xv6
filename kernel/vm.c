@@ -99,30 +99,73 @@ walk(pagetable_t pagetable, uint64 va, int alloc)
   return &pagetable[PX(0, va)];
 }
 
+// Lazy allocation memory for proc p.
+// Returns address of allocated memory or 0 if failed allocating.
+uint64 lazyalloc(pagetable_t pagetable, uint64 va, struct vma *vma)
+{
+  char *mem;
+  int permissions;
+
+  mem = kalloc();
+  if(mem == 0) return 0;
+  memset(mem, 0, PGSIZE);
+
+  if(vma->file) {
+    uint64 pa = PGROUNDDOWN(va - vma->start);
+    int file_off = pa + vma->offset;
+    if(vma->file_length + vma->start > pa) {
+      uint64 remaining_length = vma->file_length + vma->start - pa;
+      uint64 size = PGSIZE >= remaining_length ? remaining_length : PGSIZE;
+      ilock(vma->file->ip);
+      readi(vma->file->ip, 0, (uint64) mem, file_off, size);
+      iunlock(vma->file->ip);
+    }
+  }
+
+  permissions = (vma->permission << 1) | PTE_U | PTE_V;
+  if(mappages(pagetable, PGROUNDDOWN(va), PGSIZE, (uint64)mem, permissions) != 0){
+    kfree(mem);
+    return 0;
+  }
+
+  return (uint64)mem;
+}
+
 // Look up a virtual address, allocate if not mapped
 // Can only be used to look up user pages.
 uint64
 walkaddr(pagetable_t pagetable, uint64 va)
 {
   pte_t *pte;
-  uint64 pa;
+  struct vma *vma;
 
-  if(va >= MAXVA)
-    return 0;
+  if(va >= MAXVA) return 0;
+
+  for(vma = &(myproc()->vma_start); vma != 0; vma = vma->next) {
+    if(vma->start <= va && va < vma->start + vma->length)
+      break;
+  }
+  if(vma == 0) return 0;
 
   pte = walk(pagetable, va, 0);
-  if(pte == 0 || (*pte & PTE_V) == 0 || (*pte & PTE_U) == 0){
-    uint64 lazypa = lazyalloc(pagetable, va);
-    pa = (lazypa <= 0) ? 0 : lazypa;
-  } else
-    pa = PTE2PA(*pte);
-  return pa;
+  if(pte == 0 || (*pte & PTE_V) == 0)
+    return lazyalloc(pagetable, va, vma);
+  else if((*pte & PTE_U) == 0)
+    return 0;
+  else return PTE2PA(*pte);
+}
+
+void
+allocrange(pagetable_t pagetable, uint64 va, uint64 sz)
+{
+  for(uint64 pa = va; pa < va + sz; pa += PGSIZE)
+    walkaddr(pagetable, pa);
 }
 
 // returns 1 if page is mapped, 0 otherwise
 int is_page_mapped(pagetable_t pagetable, uint64 va) {
   pte_t *pte = walk(pagetable, va, 0);
-  return !(pte == 0 || (*pte & PTE_V) == 0 || (*pte & PTE_U) == 0);
+  return !(pte == 0 || (*pte & PTE_V) == 0);
 }
 
 // add a mapping to the kernel page table.
@@ -266,49 +309,6 @@ uvmdealloc(pagetable_t pagetable, uint64 oldsz, uint64 newsz)
   return newsz;
 }
 
-// Lazy allocation memory for proc p.
-// Returns address of allocated memory or 0 if failed allocating.
-uint64 lazyalloc(pagetable_t pagetable, uint64 va) 
-{
-  char *mem;
-  struct proc *p = myproc();
-  struct vma *vma;
-  int permissions;
-
-  // Look for the VMA which has va
-
-  for(vma = &p->vma_start; vma->next != 0; vma = vma->next) {
-    if(vma->start <= va && va < vma->start + vma->length)
-      break;
-  }
-
-  if(vma == &p->vma_end && (va >= p->sz || va < PGROUNDUP(p->trapframe->sp)))
-    return 0;
-  
-  mem = kalloc();
-  if(mem == 0)
-    return 0;
-
-  memset(mem, 0, PGSIZE);
-
-  if(vma != &p->vma_end) {
-    int file_off = PGROUNDDOWN(va - vma->start + vma->offset);
-    uint64 remaining_length = vma->file->ip->size - file_off;
-    uint64 size = PGSIZE >= remaining_length ? remaining_length : PGSIZE;
-
-    ilock(vma->file->ip);
-    readi(vma->file->ip, 0, (uint64) mem, file_off, size); // TODO: assume file?
-    iunlock(vma->file->ip);
-    permissions = (vma->permission << 1)|PTE_U|PTE_X;
-  } else permissions = PTE_W|PTE_X|PTE_R|PTE_U;
-
-  if(mappages(pagetable, PGROUNDDOWN(va), PGSIZE, (uint64)mem, permissions) != 0){
-    kfree(mem);
-    return 0;
-  }
-
-  return (uint64)mem;
-}
 
 // Recursively free page-table pages.
 // All leaf mappings must already have been removed.
@@ -354,7 +354,7 @@ uvmcopy_offseted(pagetable_t old, pagetable_t new, uint64 start, uint64 sz)
   uint flags;
   char *mem;
 
-  for(i = PGROUNDDOWN(start); i < sz + PGROUNDDOWN(start); i += PGSIZE){
+  for(i = PGROUNDDOWN(start); i < sz + start; i += PGSIZE){
     pte = walk(old, i, 0);
     if((pte > 0) && (*pte & PTE_V)){
       pa = PTE2PA(*pte);
