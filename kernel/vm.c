@@ -116,6 +116,13 @@ walkaddr(pagetable_t pagetable, uint64 va)
   return pa;
 }
 
+void
+allocrange(pagetable_t pagetable, uint64 va, uint64 sz)
+{
+  for(uint64 pa = va; pa < va + sz; pa += PGSIZE)
+    walkaddr(pagetable, pa);
+}
+
 // returns 1 if page is mapped, 0 otherwise
 int is_page_mapped(pagetable_t pagetable, uint64 va) {
   pte_t *pte = walk(pagetable, va, 0);
@@ -296,7 +303,7 @@ uint64 lazyalloc(pagetable_t pagetable, uint64 va)
     }
   }
 
-  permissions = (vma->permission << 1)|PTE_U|PTE_X|PTE_V;
+  permissions = (vma->permission << 1) | PTE_U | PTE_V;
   if(mappages(pagetable, PGROUNDDOWN(va), PGSIZE, (uint64)mem, permissions) != 0){
     kfree(mem);
     return 0;

@@ -71,6 +71,8 @@ exec(char *path, char **argv)
       permission |= PROT_WRITE;
     if(ph.flags & ELF_PROG_FLAG_READ)
       permission |= PROT_READ;
+    if(ph.flags & ELF_PROG_FLAG_EXEC)
+      permission |= PROT_EXEC;
     aux = vma;
     if((vma = vma_alloc()) == 0)
       goto bad;
@@ -156,10 +158,9 @@ exec(char *path, char **argv)
   p->heap = vma; // set heap VMA
 
   // Stop lazy alloc por binary
-  struct vma *it;
-  for(it = vma; it->next != 0; it = it->next);
-  for(uint64 pa = PGROUNDDOWN(it->start); pa < it->start + it->length; pa += PGSIZE)
-    walkaddr(pagetable, pa);
+  /** struct vma *it; */
+  /** for(it = vma; it->next != 0; it = it->next); */
+  /** allocrange(pagetable, vma->start, vma->length); */
 
   return argc; // this ends up in a0, the first argument to main(argc, argv)
 
