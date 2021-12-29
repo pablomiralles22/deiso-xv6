@@ -124,7 +124,7 @@ uint64 lazyalloc(pagetable_t pagetable, uint64 va, struct vma *vma)
 
   permissions = (vma->permission << 1) | PTE_U | PTE_V;
   if(mappages(pagetable, PGROUNDDOWN(va), PGSIZE, (uint64)mem, permissions) != 0){
-    kfree(mem);
+    decref(mem);
     return 0;
   }
 
@@ -150,9 +150,39 @@ walkaddr(pagetable_t pagetable, uint64 va)
   pte = walk(pagetable, va, 0);
   if(pte == 0 || (*pte & PTE_V) == 0)
     return lazyalloc(pagetable, va, vma);
-  else if((*pte & PTE_U) == 0)
-    return 0;
+  else if((*pte & PTE_U) == 0) return 0;
   else return PTE2PA(*pte);
+}
+
+uint64 handle_copy_on_write(pagetable_t pagetable, uint64 va) 
+{
+  if(!is_page_mapped(pagetable, va))
+    return walkaddr(pagetable, va); // normal page fault
+
+  pte_t *pte = walk(pagetable, va, 0);
+  uint64 pa = PTE2PA(*pte);
+  if(*pte & PTE_W)
+    return walkaddr(pagetable, va);
+
+  int perms = PTE_FLAGS(*pte) | PTE_W;
+
+  if(!iscow((void *)pa))
+    return 0;
+
+  if(getref((void *)pa) == 1) {
+    *pte |= PTE_W;
+    setcow((void *)pa, 0);
+  }
+
+  char *mem = kalloc();
+  if(mem == 0) return 0;
+  memmove(mem, (void*)pa, PGSIZE);
+  if(mappages(pagetable, va, PGSIZE, (uint64)mem, perms) != 0){
+    decref(mem);
+    return 0;
+  }
+  decref((void*)pa);
+  return (uint64) mem;
 }
 
 void
@@ -228,7 +258,8 @@ uvmunmap(pagetable_t pagetable, uint64 va, uint64 npages, int do_free)
       panic("uvmunmap: not a leaf");
     if(do_free){
       uint64 pa = PTE2PA(*pte);
-      kfree((void*)pa);
+      printf("Unmapping %p, got %p - %p\n", a, pa, *pte);
+      decref((void*)pa);
     }
     *pte = 0;
   }
@@ -283,7 +314,7 @@ uvmalloc(pagetable_t pagetable, uint64 oldsz, uint64 newsz)
     }
     memset(mem, 0, PGSIZE);
     if(mappages(pagetable, a, PGSIZE, (uint64)mem, PTE_W|PTE_X|PTE_R|PTE_U) != 0){
-      kfree(mem);
+      decref(mem);
       uvmdealloc(pagetable, a, oldsz);
       return 0;
     }
@@ -327,7 +358,7 @@ freewalk(pagetable_t pagetable)
       panic("freewalk: leaf");
     }
   }
-  kfree((void*)pagetable);
+  decref((void*)pagetable);
 }
 
 // Free user memory pages,
@@ -347,25 +378,30 @@ uvmfree(pagetable_t pagetable, uint64 sz)
 // returns 0 on success, -1 on failure.
 // frees any allocated pages on failure.
 int
-uvmcopy_offseted(pagetable_t old, pagetable_t new, uint64 start, uint64 sz)
+uvmcopy_offseted(pagetable_t old, pagetable_t new, uint64 start, uint64 sz, int cow)
 {
   pte_t *pte;
   uint64 pa, i;
-  uint flags;
-  char *mem;
+  uint perms;
 
-  for(i = PGROUNDDOWN(start); i < sz + start; i += PGSIZE){
+  for(i = PGROUNDDOWN(start); i < start + sz; i += PGSIZE){
     pte = walk(old, i, 0);
     if((pte > 0) && (*pte & PTE_V)){
       pa = PTE2PA(*pte);
-      flags = PTE_FLAGS(*pte);
-      if((mem = kalloc()) == 0)
-        goto err;
-      memmove(mem, (char*)pa, PGSIZE);
-      if(mappages(new, i, PGSIZE, (uint64)mem, flags) != 0){
-        kfree(mem);
-        goto err;
+      perms = PTE_FLAGS(*pte);
+
+      if(cow) {
+        perms &= (~PTE_W);
+        if(mappages(new, i, PGSIZE, pa, perms) != 0)
+          goto err;
+        // remap parent
+        *pte &= (~PTE_W);
+        setcow((void *)pa, 1);
+      } else {
+        if(mappages(new, i, PGSIZE, pa, perms) != 0)
+          goto err;
       }
+      incref((void *)pa);
     }
   }
   return 0;
@@ -376,9 +412,9 @@ uvmcopy_offseted(pagetable_t old, pagetable_t new, uint64 start, uint64 sz)
 }
 
 int
-uvmcopy(pagetable_t old, pagetable_t new, uint64 sz)
+uvmcopy(pagetable_t old, pagetable_t new, uint64 sz, int cow)
 {
-  return uvmcopy_offseted(old, new, 0, sz);
+  return uvmcopy_offseted(old, new, 0, sz, cow);
 }
 
 // mark a PTE invalid for user access.

@@ -20,8 +20,7 @@ exec(char *path, char **argv)
   struct file *elf_file;
   pagetable_t pagetable = 0, oldpagetable;
   struct proc *p = myproc();
-  struct vma *vma = 0,
-             *aux = 0,
+  struct vma *vma = 0, *aux = 0,
              *old_vma = p->vma_start.next; // needed to restore in case of error
 
   begin_op();
@@ -84,8 +83,6 @@ exec(char *path, char **argv)
   iunlock(ip); // don't deref inode on finish
   end_op();
   ip = 0;
-
-  uint64 oldsz = p->sz;
 
   // Allocate VMA for stack
   aux = vma;
@@ -150,11 +147,11 @@ exec(char *path, char **argv)
   p->sz = sz;
   p->trapframe->epc = elf.entry;  // initial program counter = main
   p->trapframe->sp = sp; // initial stack pointer
-  proc_freepagetable(oldpagetable, oldsz);
   for(struct vma *it = old_vma, *next; it != 0; it = next) {
     next = it->next;
     vma_free(oldpagetable, it);
   }
+  proc_freepagetable(oldpagetable, 0);
   p->heap = vma; // set heap VMA
 
   // Stop lazy alloc por binary
@@ -165,16 +162,16 @@ exec(char *path, char **argv)
   return argc; // this ends up in a0, the first argument to main(argc, argv)
 
  bad:
-  if(pagetable)
-    proc_freepagetable(pagetable, sz);
-  if(ip){
-    iunlockput(ip);
-    end_op();
-  }
   p->vma_start.next = old_vma; // undo change of VMAs
   for(struct vma *it = vma, *next; it != 0; it = next) {
     next = it->next;
     vma_free(pagetable, it);
+  }
+  if(pagetable)
+    proc_freepagetable(pagetable, 0);
+  if(ip){
+    iunlockput(ip);
+    end_op();
   }
   return -1;
 }

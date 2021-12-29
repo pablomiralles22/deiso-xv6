@@ -65,11 +65,12 @@ usertrap(void)
     intr_on();
 
     syscall();
-  } else if(r_scause() == 12 || r_scause() == 13 || r_scause() == 15){
-    if(walkaddr(p->pagetable, r_stval()) <= 0) {
-      /** printf("usertrap(): could not get VA %p from PID=%d\n", r_stval(), p->pid); */
+  } else if(r_scause() == 12 || r_scause() == 13){
+    if(walkaddr(p->pagetable, r_stval()) <= 0)
       p->killed = 1;
-    }
+  } else if (r_scause() == 15) {
+    if(handle_copy_on_write(myproc()->pagetable, r_stval()) <= 0)
+      p->killed = 1;
   } else if((which_dev = devintr()) != 0){
     // ok
   } else {
@@ -148,9 +149,12 @@ kerneltrap()
   if(intr_get() != 0)
     panic("kerneltrap: interrupts enabled");
 
-  if(r_scause() == 13 || r_scause() == 15) {
+  if(r_scause() == 13) {
     if(walkaddr(myproc()->pagetable, r_stval()) <= 0)
       panic("kerneltrap: lazy allocation");
+  } else if (r_scause() == 15) {
+    if(handle_copy_on_write(myproc()->pagetable, r_stval()) <= 0)
+      panic("kerneltrap: cow");
   } else if((which_dev = devintr()) == 0){
     printf("scause %p\n", scause);
     printf("sepc=%p stval=%p\n", r_sepc(), r_stval());

@@ -158,11 +158,11 @@ static void
 freeproc(struct proc *p)
 {
   if(p->trapframe)
-    kfree((void*)p->trapframe);
+    decref((void*)p->trapframe);
   p->trapframe = 0;
   // Free on exit?
-  /** if(p->pagetable) */
-  /**   proc_freepagetable(p->pagetable, p->sz); */
+  if(p->pagetable)
+    proc_freepagetable(p->pagetable, 0); // vmas should have been freed
   p->pagetable = 0;
   p->sz = 0;
   p->pid = 0;
@@ -352,8 +352,8 @@ fork(void)
              *it2 = &np->vma_start;
 
   while(it1->next != 0) {
-    if((it2->next = vma_alloc()) == 0 || 
-        uvmcopy_offseted(p->pagetable, np->pagetable, it1->next->start, it1->next->length) < 0){
+    if((it2->next = vma_alloc()) == 0 || uvmcopy_offseted(p->pagetable,
+          np->pagetable, it1->next->start, it1->next->length, it1->flags & MAP_PRIVATE) < 0){
       // on error free every VMA of the new proc
       if(it2->next) release(&it2->next->lock);
       for(struct vma *it = np->vma_start.next, *next; it != 0; it = next) {
@@ -416,7 +416,7 @@ exit(int status)
     next = it->next;
     vma_free(p->pagetable, it);
   }
-  proc_freepagetable(p->pagetable, 0);
+  /** proc_freepagetable(p->pagetable, 0); */
 
   begin_op();
   iput(p->cwd);
