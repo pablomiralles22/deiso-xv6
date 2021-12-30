@@ -353,7 +353,7 @@ fork(void)
 
   while(it1->next != 0) {
     if((it2->next = vma_alloc()) == 0 || uvmcopy_offseted(p->pagetable,
-          np->pagetable, it1->next->start, it1->next->length, it1->flags & MAP_PRIVATE) < 0){
+          np->pagetable, it1->next->start, it1->next->length, it1->next->flags & MAP_PRIVATE) < 0){
       // on error free every VMA of the new proc
       if(it2->next) release(&it2->next->lock);
       for(struct vma *it = np->vma_start.next, *next; it != 0; it = next) {

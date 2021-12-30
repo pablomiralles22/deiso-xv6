@@ -69,7 +69,7 @@ usertrap(void)
     if(walkaddr(p->pagetable, r_stval()) <= 0)
       p->killed = 1;
   } else if (r_scause() == 15) {
-    if(handle_copy_on_write(myproc()->pagetable, r_stval()) <= 0)
+    if(handle_copy_on_write(p->pagetable, r_stval()) <= 0)
       p->killed = 1;
   } else if((which_dev = devintr()) != 0){
     // ok

@@ -84,6 +84,7 @@ walk(pagetable_t pagetable, uint64 va, int alloc)
 {
   if(va >= MAXVA)
     panic("walk");
+  /** printf("Call to walk for dir %p\n", va); */
 
   for(int level = 2; level > 0; level--) {
     pte_t *pte = &pagetable[PX(level, va)];
@@ -161,13 +162,11 @@ uint64 handle_copy_on_write(pagetable_t pagetable, uint64 va)
 
   pte_t *pte = walk(pagetable, va, 0);
   uint64 pa = PTE2PA(*pte);
-  if(*pte & PTE_W)
-    return walkaddr(pagetable, va);
-
   int perms = PTE_FLAGS(*pte) | PTE_W;
+  printf("Call to COW: %p - %p - %p\n", va, *pte, pa);
 
   if(!iscow((void *)pa))
-    return 0;
+    return pa;
 
   if(getref((void *)pa) == 1) {
     *pte |= PTE_W;

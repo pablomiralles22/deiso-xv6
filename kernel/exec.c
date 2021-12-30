@@ -116,11 +116,11 @@ exec(char *path, char **argv)
   }
   ustack[argc] = 0;
 
-  /** printf("EXEC CALL from PID=%d\n", p->pid); */
-  /** for(struct vma *it = &p->vma_start; it != 0; it = it->next) { */
-  /**   printf("VMA %p, [%p, %p]\n", it, it->start, it->start+it->length); */
-  /** } */
-  /** printf("----------\n"); */
+  printf("EXEC CALL from PID=%d\n", p->pid);
+  for(struct vma *it = &p->vma_start; it != 0; it = it->next) {
+    printf("VMA %p, [%p, %p]\n", it, it->start, it->start+it->length);
+  }
+  printf("----------\n");
 
   // push the array of argv[] pointers.
   sp -= (argc+1) * sizeof(uint64);
@@ -163,12 +163,13 @@ exec(char *path, char **argv)
 
  bad:
   p->vma_start.next = old_vma; // undo change of VMAs
-  for(struct vma *it = vma, *next; it != 0; it = next) {
-    next = it->next;
-    vma_free(pagetable, it);
-  }
-  if(pagetable)
+  if(pagetable) {
+    for(struct vma *it = vma, *next; it != 0; it = next) {
+      next = it->next;
+      vma_free(pagetable, it);
+    }
     proc_freepagetable(pagetable, 0);
+  }
   if(ip){
     iunlockput(ip);
     end_op();
