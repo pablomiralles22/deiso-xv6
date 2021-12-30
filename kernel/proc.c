@@ -160,9 +160,8 @@ freeproc(struct proc *p)
   if(p->trapframe)
     kfree((void*)p->trapframe);
   p->trapframe = 0;
-  // Free on exit?
-  /** if(p->pagetable) */
-  /**   proc_freepagetable(p->pagetable, p->sz); */
+  if(p->pagetable)
+    proc_freepagetable(p->pagetable, 0);
   p->pagetable = 0;
   p->sz = 0;
   p->pid = 0;
@@ -416,7 +415,7 @@ exit(int status)
     next = it->next;
     vma_free(p->pagetable, it);
   }
-  proc_freepagetable(p->pagetable, 0);
+  // pagetable is freed on freeproc
 
   begin_op();
   iput(p->cwd);
@@ -459,41 +458,41 @@ wait(uint64 addr)
   acquire(&wait_lock);
 
   for(;;){
-    // Scan through table looking for exited children.
-    havekids = 0;
-    for(np = proc; np < &proc[NPROC]; np++){
-      if(np->parent == p){
-        // make sure the child isn't still in exit() or swtch().
-        acquire(&np->lock);
+      // Scan through table looking for exited children.
+      havekids = 0;
+      for(np = proc; np < &proc[NPROC]; np++){
+        if(np->parent == p){
+          // make sure the child isn't still in exit() or swtch().
+          acquire(&np->lock);
 
-        havekids = 1;
-        if(np->state == ZOMBIE){
-          // Found one.
-          pid = np->pid;
-          if(addr != 0 && copyout(p->pagetable, addr, (char *)&np->xstate,
-                                  sizeof(np->xstate)) < 0) {
-            release(&np->lock);
-            release(&wait_lock);
-            return -1;
-          }
-        freeproc(np);
+          havekids = 1;
+          if(np->state == ZOMBIE){
+            // Found one.
+            pid = np->pid;
+            if(addr != 0 && copyout(p->pagetable, addr, (char *)&np->xstate,
+                                    sizeof(np->xstate)) < 0) {
+              release(&np->lock);
+              release(&wait_lock);
+              return -1;
+            }
+          freeproc(np);
+          release(&np->lock);
+          release(&wait_lock);
+          return pid;
+        }
         release(&np->lock);
-        release(&wait_lock);
-        return pid;
       }
-      release(&np->lock);
     }
-  }
 
-  // No point waiting if we don't have any children.
-  if(!havekids || p->killed){
-    release(&wait_lock);
-    return -1;
+    // No point waiting if we don't have any children.
+    if(!havekids || p->killed){
+      release(&wait_lock);
+      return -1;
+    }
+
+    // Wait for a child to exit.
+    sleep(p, &wait_lock);  //DOC: wait-sleep
   }
-  
-  // Wait for a child to exit.
-  sleep(p, &wait_lock);  //DOC: wait-sleep
-}
 }
 
 /*
@@ -506,20 +505,20 @@ static unsigned random_seed = 1;
 #define RANDOM_MAX ((1u << 63u) - 1u)
 unsigned lcg_parkmiller(unsigned *state)
 {
-const unsigned N = 0x7fffffff;
-const unsigned G = 48271u;
+  const unsigned N = 0x7fffffff;
+  const unsigned G = 48271u;
 
-unsigned div = *state / (N / G);  /* max : 2,147,483,646 / 44,488 = 48,271 */
-unsigned rem = *state % (N / G);  /* max : 2,147,483,646 % 44,488 = 44,487 */
+  unsigned div = *state / (N / G);  /* max : 2,147,483,646 / 44,488 = 48,271 */
+  unsigned rem = *state % (N / G);  /* max : 2,147,483,646 % 44,488 = 44,487 */
 
-unsigned a = rem * G;        /* max : 44,487 * 48,271 = 2,147,431,977 */
-unsigned b = div * (N % G);  /* max : 48,271 * 3,399 = 164,073,129 */
+  unsigned a = rem * G;        /* max : 44,487 * 48,271 = 2,147,431,977 */
+  unsigned b = div * (N % G);  /* max : 48,271 * 3,399 = 164,073,129 */
 
-return *state = (a > b) ? (a - b) : (a + (N - b));
+  return *state = (a > b) ? (a - b) : (a + (N - b));
 }
 
 unsigned next_random() {
-return lcg_parkmiller(&random_seed);
+  return lcg_parkmiller(&random_seed);
 }
 
 // Per-CPU process scheduler.
@@ -549,7 +548,7 @@ scheduler(void)
       release(&tickets_lock);
       continue;
     }
-    target_tickets = (next_random() % total_tickets) + MINTICKETS;
+    target_tickets = (next_random() % total_tickets) + 1;
 
     for(p = proc; p < &proc[NPROC]; p++)
       if(p->state == RUNNABLE) {
