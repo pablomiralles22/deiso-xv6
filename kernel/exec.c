@@ -48,7 +48,6 @@ exec(char *path, char **argv)
   elf_file->off      = 0;
   elf_file->readable = 1;
   elf_file->writable = 0;
-  elf_file->ref      = 1; // avoid filedup panic
   elf_file->ip       = ip;
 
 

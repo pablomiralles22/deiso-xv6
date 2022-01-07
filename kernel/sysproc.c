@@ -204,7 +204,7 @@ sys_munmap(void) {
   struct vma *it = &p->vma_start;
   struct vma *prev = 0;
 
-  for(; it->next != 0; prev = it, it = it->next)
+  for(; it != p->heap; prev = it, it = it->next)
     if(it->start <= addr && it->start + it->length >= addr + length) {
       // found VMA
       if(it->start == addr && it->length == length) {
